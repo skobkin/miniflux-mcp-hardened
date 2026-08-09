@@ -28,6 +28,8 @@ COPY --from=builder --chown=65532:65532 /out/miniflux-mcp /miniflux-mcp
 
 USER 65532:65532
 
+ENV MCP_TRANSPORT=streamable-http
+
 EXPOSE 8080
 
 ENTRYPOINT ["/miniflux-mcp"]

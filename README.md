@@ -66,7 +66,7 @@ Subscription `feed_url`, Miniflux user IDs, credentials, cookies, fetch/proxy se
 | `MINIFLUX_USERNAME` | Miniflux username | Use with `MINIFLUX_PASSWORD` when no API key is set |
 | `MINIFLUX_PASSWORD` | Miniflux password | Use with `MINIFLUX_USERNAME` when no API key is set |
 | `MCP_WRITE_TOOLS` | Comma-separated write-tool allowlist | Empty; read-only |
-| `MCP_TRANSPORT` | `stdio` or `streamable-http` | `stdio` |
+| `MCP_TRANSPORT` | `stdio` or `streamable-http` | `stdio`; container image: `streamable-http` |
 | `MCP_HTTP_ADDR` | HTTP listen address | `:8080` |
 | `MCP_HTTP_PATH` | MCP endpoint path | `/mcp` |
 | `MCP_AUTH_TOKEN` | Bearer token protecting the MCP endpoint | Required for HTTP |
@@ -167,13 +167,12 @@ services:
     environment:
       MINIFLUX_URL: ${MINIFLUX_URL}
       MINIFLUX_API_KEY: ${MINIFLUX_API_KEY}
-      MCP_TRANSPORT: streamable-http
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN}
       MCP_WRITE_TOOLS: ${MCP_WRITE_TOOLS:-}
       MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
 ```
 
-Clients send `Authorization: Bearer <token>`. Request reads and header sizes are bounded; response writes remain unbounded because Streamable HTTP may use long-lived SSE streams. SIGTERM and SIGINT trigger a bounded graceful shutdown. `/healthz` is intentionally unauthenticated and returns only `ok`.
+The container image defaults to Streamable HTTP; set `MCP_AUTH_TOKEN` or startup fails. Clients send `Authorization: Bearer <token>`. Request reads and header sizes are bounded; response writes remain unbounded because Streamable HTTP may use long-lived SSE streams. SIGTERM and SIGINT trigger a bounded graceful shutdown. `/healthz` is intentionally unauthenticated and returns only `ok`.
 
 ## Continuous integration and releases
 
