@@ -7,17 +7,19 @@ import (
 
 const writeToolsEnvironmentVariable = "MCP_WRITE_TOOLS"
 
-var allowedWriteToolNames = map[string]struct{}{
-	"update_entry_status": {},
-	"toggle_starred":      {},
-	"refresh_feed":        {},
-}
-
 type writeToolSet map[string]struct{}
 
 func (s writeToolSet) contains(name string) bool {
 	_, ok := s[name]
 	return ok
+}
+
+func approvedWriteTools() writeToolSet {
+	result := make(writeToolSet)
+	for _, definition := range (&MinifluxServer{}).writeToolDefinitions() {
+		result[definition.Tool.Name] = struct{}{}
+	}
+	return result
 }
 
 func parseWriteTools(value string) (writeToolSet, error) {
@@ -26,12 +28,13 @@ func parseWriteTools(value string) (writeToolSet, error) {
 		return result, nil
 	}
 
+	approved := approvedWriteTools()
 	for _, configuredName := range strings.Split(value, ",") {
 		name := strings.TrimSpace(configuredName)
 		if name == "" {
 			return nil, fmt.Errorf("%s contains an empty tool name", writeToolsEnvironmentVariable)
 		}
-		if _, ok := allowedWriteToolNames[name]; !ok {
+		if !approved.contains(name) {
 			return nil, fmt.Errorf("%s contains unknown or disallowed tool %q", writeToolsEnvironmentVariable, name)
 		}
 		result[name] = struct{}{}

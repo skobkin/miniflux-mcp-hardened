@@ -72,10 +72,20 @@ func TestToolDefinitionsAreReadOnlyByDefault(t *testing.T) {
 }
 
 func TestEachAllowedWriteToolCanBeEnabled(t *testing.T) {
-	for name := range allowedWriteToolNames {
+	expected := []string{"refresh_feed", "toggle_starred", "update_entry_status"}
+	definitions := (&MinifluxServer{}).writeToolDefinitions()
+	if actual := toolNames(definitions); !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("approved write tools = %v, want %v", actual, expected)
+	}
+
+	for _, definition := range definitions {
+		name := definition.Tool.Name
 		t.Run(name, func(t *testing.T) {
-			definitions := (&MinifluxServer{}).toolDefinitions(writeToolSet{name: {}})
-			names := toolNames(definitions)
+			enabled, err := parseWriteTools(name)
+			if err != nil {
+				t.Fatalf("parseWriteTools(%q): %v", name, err)
+			}
+			names := toolNames((&MinifluxServer{}).toolDefinitions(enabled))
 			if !containsString(names, name) {
 				t.Fatalf("enabled tool %q not registered: %v", name, names)
 			}
