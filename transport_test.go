@@ -136,6 +136,13 @@ func TestHTTPOriginAndBearerProtection(t *testing.T) {
 			if actual := response.Header().Get("Access-Control-Allow-Origin"); actual != test.wantAllowedOrigin {
 				t.Fatalf("Access-Control-Allow-Origin = %q, want %q", actual, test.wantAllowedOrigin)
 			}
+			wantVary := ""
+			if len(test.originHeaders) > 0 {
+				wantVary = "Origin"
+			}
+			if actual := response.Header().Get("Vary"); actual != wantVary {
+				t.Fatalf("Vary = %q, want %q", actual, wantVary)
+			}
 		})
 	}
 }

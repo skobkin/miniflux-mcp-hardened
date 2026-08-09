@@ -186,6 +186,7 @@ func validateOrigin(allowedOrigins map[string]struct{}, next http.Handler) http.
 			next.ServeHTTP(w, r)
 			return
 		}
+		w.Header().Add("Vary", "Origin")
 		if len(originHeaders) != 1 {
 			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 			return
@@ -202,7 +203,6 @@ func validateOrigin(allowedOrigins map[string]struct{}, next http.Handler) http.
 			return
 		}
 
-		w.Header().Add("Vary", "Origin")
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
 		if r.Method == http.MethodOptions {
