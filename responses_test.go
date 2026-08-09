@@ -1,0 +1,265 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"reflect"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	"miniflux.app/v2/client"
+)
+
+const sentinelSecret = "SENTINEL-SECRET-DO-NOT-EXPOSE"
+
+type fakeMinifluxClient struct {
+	feeds       client.Feeds
+	entries     *client.EntryResultSet
+	entry       *client.Entry
+	feedsError  error
+	entryError  error
+	lastContext context.Context
+}
+
+func (f *fakeMinifluxClient) HealthcheckContext(ctx context.Context) error {
+	f.lastContext = ctx
+	return nil
+}
+
+func (f *fakeMinifluxClient) VersionContext(ctx context.Context) (*client.VersionResponse, error) {
+	f.lastContext = ctx
+	return &client.VersionResponse{Version: "test"}, nil
+}
+
+func (f *fakeMinifluxClient) CategoriesContext(ctx context.Context) (client.Categories, error) {
+	f.lastContext = ctx
+	return nil, nil
+}
+
+func (f *fakeMinifluxClient) CategoryFeedsContext(ctx context.Context, _ int64) (client.Feeds, error) {
+	f.lastContext = ctx
+	return f.feeds, f.feedsError
+}
+
+func (f *fakeMinifluxClient) FeedsContext(ctx context.Context) (client.Feeds, error) {
+	f.lastContext = ctx
+	return f.feeds, f.feedsError
+}
+
+func (f *fakeMinifluxClient) FeedContext(ctx context.Context, _ int64) (*client.Feed, error) {
+	f.lastContext = ctx
+	if len(f.feeds) == 0 {
+		return nil, f.feedsError
+	}
+	return f.feeds[0], f.feedsError
+}
+
+func (f *fakeMinifluxClient) RefreshFeedContext(ctx context.Context, _ int64) error {
+	f.lastContext = ctx
+	return nil
+}
+
+func (f *fakeMinifluxClient) FeedEntryContext(ctx context.Context, _, _ int64) (*client.Entry, error) {
+	f.lastContext = ctx
+	return f.entry, f.entryError
+}
+
+func (f *fakeMinifluxClient) CategoryEntryContext(ctx context.Context, _, _ int64) (*client.Entry, error) {
+	f.lastContext = ctx
+	return f.entry, f.entryError
+}
+
+func (f *fakeMinifluxClient) EntryContext(ctx context.Context, _ int64) (*client.Entry, error) {
+	f.lastContext = ctx
+	return f.entry, f.entryError
+}
+
+func (f *fakeMinifluxClient) EntriesContext(ctx context.Context, _ *client.Filter) (*client.EntryResultSet, error) {
+	f.lastContext = ctx
+	return f.entries, f.entryError
+}
+
+func (f *fakeMinifluxClient) FeedEntriesContext(ctx context.Context, _ int64, _ *client.Filter) (*client.EntryResultSet, error) {
+	f.lastContext = ctx
+	return f.entries, f.entryError
+}
+
+func (f *fakeMinifluxClient) CategoryEntriesContext(ctx context.Context, _ int64, _ *client.Filter) (*client.EntryResultSet, error) {
+	f.lastContext = ctx
+	return f.entries, f.entryError
+}
+
+func (f *fakeMinifluxClient) UpdateEntriesContext(ctx context.Context, _ []int64, _ string) error {
+	f.lastContext = ctx
+	return nil
+}
+
+func (f *fakeMinifluxClient) ToggleStarredContext(ctx context.Context, _ int64) error {
+	f.lastContext = ctx
+	return nil
+}
+
+func (f *fakeMinifluxClient) FetchCountersContext(ctx context.Context) (*client.FeedCounters, error) {
+	f.lastContext = ctx
+	return &client.FeedCounters{}, nil
+}
+
+func resultText(t *testing.T, result *mcp.CallToolResult) string {
+	t.Helper()
+	if result == nil {
+		t.Fatal("nil tool result")
+	}
+	if len(result.Content) != 1 {
+		t.Fatalf("result content length = %d, want 1", len(result.Content))
+	}
+	content, ok := mcp.AsTextContent(result.Content[0])
+	if !ok {
+		t.Fatalf("result content type = %T, want text", result.Content[0])
+	}
+	return content.Text
+}
+
+func TestGetFeedsSanitizesSensitiveFields(t *testing.T) {
+	feed := &client.Feed{
+		ID:                 42,
+		Title:              "Example",
+		SiteURL:            "https://example.com/",
+		FeedURL:            "https://token:" + sentinelSecret + "@example.com/feed",
+		Username:           sentinelSecret,
+		Password:           sentinelSecret,
+		Cookie:             sentinelSecret,
+		ProxyURL:           "https://" + sentinelSecret + "@proxy.example/",
+		AppriseServiceURLs: sentinelSecret,
+		WebhookURL:         sentinelSecret,
+		EtagHeader:         sentinelSecret,
+		ParsingErrorMsg:    sentinelSecret,
+		Category: &client.Category{
+			ID:     7,
+			Title:  "News",
+			UserID: 99,
+		},
+	}
+	fake := &fakeMinifluxClient{feeds: client.Feeds{feed}}
+	server := &MinifluxServer{client: fake}
+
+	result, err := server.GetFeeds(context.Background(), mcp.CallToolRequest{})
+	if err != nil {
+		t.Fatalf("GetFeeds returned error: %v", err)
+	}
+	text := resultText(t, result)
+	if strings.Contains(text, sentinelSecret) {
+		t.Fatalf("serialized feed leaked sentinel secret: %s", text)
+	}
+	assertJSONKeys(t, text, []string{
+		"category", "checked_at", "description", "disabled", "id", "language",
+		"next_check_at", "parsing_error_count", "site_url", "title",
+	})
+	if fake.lastContext == nil {
+		t.Fatal("request context was not passed to Miniflux client")
+	}
+}
+
+func TestEntryListIsCompactAndNestedFeedIsSanitized(t *testing.T) {
+	entry := secretEntry()
+	fake := &fakeMinifluxClient{entries: &client.EntryResultSet{Total: 1, Entries: client.Entries{entry}}}
+	server := &MinifluxServer{client: fake}
+
+	result, err := server.GetEntries(context.Background(), mcp.CallToolRequest{})
+	if err != nil {
+		t.Fatalf("GetEntries returned error: %v", err)
+	}
+	text := resultText(t, result)
+	if strings.Contains(text, sentinelSecret) {
+		t.Fatalf("serialized entry list leaked sentinel secret: %s", text)
+	}
+	for _, forbidden := range []string{"content", "comments_url", "created_at", "feed_url", "share_code", "user_id"} {
+		if strings.Contains(text, `"`+forbidden+`"`) {
+			t.Errorf("serialized entry list contained forbidden field %q: %s", forbidden, text)
+		}
+	}
+}
+
+func TestEntryDetailIncludesContentWithoutSensitiveBackendFields(t *testing.T) {
+	entry := secretEntry()
+	entry.Content = "trusted-for-test article body"
+	fake := &fakeMinifluxClient{entry: entry}
+	server := &MinifluxServer{client: fake}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{"entry_id": float64(1)}}}
+
+	result, err := server.GetEntry(context.Background(), request)
+	if err != nil {
+		t.Fatalf("GetEntry returned error: %v", err)
+	}
+	text := resultText(t, result)
+	if !strings.Contains(text, "trusted-for-test article body") {
+		t.Fatalf("entry detail omitted article content: %s", text)
+	}
+	if strings.Contains(text, sentinelSecret) {
+		t.Fatalf("serialized entry detail leaked sentinel secret: %s", text)
+	}
+	for _, forbidden := range []string{"feed_url", "share_code", "user_id", "hash", "enclosures"} {
+		if strings.Contains(text, `"`+forbidden+`"`) {
+			t.Errorf("serialized entry detail contained forbidden field %q: %s", forbidden, text)
+		}
+	}
+}
+
+func TestBackendErrorsDoNotCrossMCPBoundary(t *testing.T) {
+	fake := &fakeMinifluxClient{feedsError: errors.New("backend said " + sentinelSecret)}
+	result, err := (&MinifluxServer{client: fake}).GetFeeds(context.Background(), mcp.CallToolRequest{})
+	if err != nil {
+		t.Fatalf("GetFeeds returned error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("GetFeeds succeeded despite backend error")
+	}
+	if text := resultText(t, result); strings.Contains(text, sentinelSecret) {
+		t.Fatalf("tool error leaked backend detail: %s", text)
+	}
+}
+
+func secretEntry() *client.Entry {
+	return &client.Entry{
+		ID:        1,
+		Title:     "Article",
+		URL:       "https://example.com/article",
+		Content:   sentinelSecret,
+		ShareCode: sentinelSecret,
+		Hash:      sentinelSecret,
+		UserID:    99,
+		Feed: &client.Feed{
+			ID:       42,
+			Title:    "Example",
+			FeedURL:  "https://example.com/private?token=" + sentinelSecret,
+			Username: sentinelSecret,
+			Password: sentinelSecret,
+			Cookie:   sentinelSecret,
+			ProxyURL: sentinelSecret,
+			Category: &client.Category{ID: 7, Title: "News", UserID: 99},
+		},
+		Enclosures: client.Enclosures{{URL: "https://example.com/media?token=" + sentinelSecret}},
+	}
+}
+
+func assertJSONKeys(t *testing.T, value string, expected []string) {
+	t.Helper()
+	var objects []map[string]interface{}
+	if err := json.Unmarshal([]byte(value), &objects); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(objects) != 1 {
+		t.Fatalf("decoded object count = %d, want 1", len(objects))
+	}
+	actual := make([]string, 0, len(objects[0]))
+	for key := range objects[0] {
+		actual = append(actual, key)
+	}
+	sort.Strings(actual)
+	sort.Strings(expected)
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("JSON keys = %v, want %v", actual, expected)
+	}
+}

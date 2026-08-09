@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 
@@ -9,7 +10,26 @@ import (
 )
 
 type MinifluxServer struct {
-	client *client.Client
+	client minifluxClient
+}
+
+type minifluxClient interface {
+	HealthcheckContext(context.Context) error
+	VersionContext(context.Context) (*client.VersionResponse, error)
+	CategoriesContext(context.Context) (client.Categories, error)
+	CategoryFeedsContext(context.Context, int64) (client.Feeds, error)
+	FeedsContext(context.Context) (client.Feeds, error)
+	FeedContext(context.Context, int64) (*client.Feed, error)
+	RefreshFeedContext(context.Context, int64) error
+	FeedEntryContext(context.Context, int64, int64) (*client.Entry, error)
+	CategoryEntryContext(context.Context, int64, int64) (*client.Entry, error)
+	EntryContext(context.Context, int64) (*client.Entry, error)
+	EntriesContext(context.Context, *client.Filter) (*client.EntryResultSet, error)
+	FeedEntriesContext(context.Context, int64, *client.Filter) (*client.EntryResultSet, error)
+	CategoryEntriesContext(context.Context, int64, *client.Filter) (*client.EntryResultSet, error)
+	UpdateEntriesContext(context.Context, []int64, string) error
+	ToggleStarredContext(context.Context, int64) error
+	FetchCountersContext(context.Context) (*client.FeedCounters, error)
 }
 
 func NewMinifluxServer() *MinifluxServer {

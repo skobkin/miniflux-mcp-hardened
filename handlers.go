@@ -67,15 +67,15 @@ func marshalToolResult(value interface{}) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText(string(data)), nil
 }
 
-func (s *MinifluxServer) GetFeeds(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	feeds, err := s.client.Feeds()
+func (s *MinifluxServer) GetFeeds(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	feeds, err := s.client.FeedsContext(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch feeds: %v", err)), nil
+		return mcp.NewToolResultError("failed to fetch feeds"), nil
 	}
-	return marshalToolResult(feeds)
+	return marshalToolResult(toMCPFeeds(feeds))
 }
 
-func (s *MinifluxServer) GetFeed(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MinifluxServer) GetFeed(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments, result := argumentsMap(request)
 	if result != nil {
 		return result, nil
@@ -84,11 +84,11 @@ func (s *MinifluxServer) GetFeed(_ context.Context, request mcp.CallToolRequest)
 	if result != nil {
 		return result, nil
 	}
-	feed, err := s.client.Feed(feedID)
+	feed, err := s.client.FeedContext(ctx, feedID)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch feed: %v", err)), nil
+		return mcp.NewToolResultError("failed to fetch feed"), nil
 	}
-	return marshalToolResult(feed)
+	return marshalToolResult(toMCPFeed(feed))
 }
 
 func parseEntryFilter(arguments map[string]interface{}) (*client.Filter, *mcp.CallToolResult) {
@@ -202,7 +202,7 @@ func validFilterStatus(status string) bool {
 	return status == "read" || status == "unread" || status == "removed"
 }
 
-func (s *MinifluxServer) GetEntries(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MinifluxServer) GetEntries(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments, result := argumentsMap(request)
 	if result != nil {
 		return result, nil
@@ -211,14 +211,14 @@ func (s *MinifluxServer) GetEntries(_ context.Context, request mcp.CallToolReque
 	if result != nil {
 		return result, nil
 	}
-	entries, err := s.client.Entries(filter)
+	entries, err := s.client.EntriesContext(ctx, filter)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch entries: %v", err)), nil
+		return mcp.NewToolResultError("failed to fetch entries"), nil
 	}
-	return marshalToolResult(entries)
+	return marshalToolResult(toMCPEntryResultSet(entries))
 }
 
-func (s *MinifluxServer) GetEntry(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MinifluxServer) GetEntry(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments, result := argumentsMap(request)
 	if result != nil {
 		return result, nil
@@ -227,14 +227,14 @@ func (s *MinifluxServer) GetEntry(_ context.Context, request mcp.CallToolRequest
 	if result != nil {
 		return result, nil
 	}
-	entry, err := s.client.Entry(entryID)
+	entry, err := s.client.EntryContext(ctx, entryID)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch entry: %v", err)), nil
+		return mcp.NewToolResultError("failed to fetch entry"), nil
 	}
-	return marshalToolResult(entry)
+	return marshalToolResult(toMCPEntryDetail(entry))
 }
 
-func (s *MinifluxServer) UpdateEntryStatus(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MinifluxServer) UpdateEntryStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments, result := argumentsMap(request)
 	if result != nil {
 		return result, nil
@@ -247,13 +247,13 @@ func (s *MinifluxServer) UpdateEntryStatus(_ context.Context, request mcp.CallTo
 	if !ok || status != "read" && status != "unread" {
 		return mcp.NewToolResultError("status must be read or unread"), nil
 	}
-	if err := s.client.UpdateEntries([]int64{entryID}, status); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to update entry status: %v", err)), nil
+	if err := s.client.UpdateEntriesContext(ctx, []int64{entryID}, status); err != nil {
+		return mcp.NewToolResultError("failed to update entry status"), nil
 	}
 	return mcp.NewToolResultText(fmt.Sprintf("Entry %d status updated to: %s", entryID, status)), nil
 }
 
-func (s *MinifluxServer) RefreshFeed(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MinifluxServer) RefreshFeed(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments, result := argumentsMap(request)
 	if result != nil {
 		return result, nil
@@ -262,18 +262,18 @@ func (s *MinifluxServer) RefreshFeed(_ context.Context, request mcp.CallToolRequ
 	if result != nil {
 		return result, nil
 	}
-	if err := s.client.RefreshFeed(feedID); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to refresh feed: %v", err)), nil
+	if err := s.client.RefreshFeedContext(ctx, feedID); err != nil {
+		return mcp.NewToolResultError("failed to refresh feed"), nil
 	}
 	return mcp.NewToolResultText(fmt.Sprintf("Feed %d refreshed successfully", feedID)), nil
 }
 
-func (s *MinifluxServer) GetCategories(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	categories, err := s.client.Categories()
+func (s *MinifluxServer) GetCategories(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	categories, err := s.client.CategoriesContext(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch categories: %v", err)), nil
+		return mcp.NewToolResultError("failed to fetch categories"), nil
 	}
-	return marshalToolResult(categories)
+	return marshalToolResult(toMCPCategories(categories))
 }
 
 func scopedFilter(arguments map[string]interface{}) (*client.Filter, *mcp.CallToolResult) {
@@ -300,7 +300,7 @@ func scopedFilter(arguments map[string]interface{}) (*client.Filter, *mcp.CallTo
 	return filter, nil
 }
 
-func (s *MinifluxServer) GetFeedEntries(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MinifluxServer) GetFeedEntries(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments, result := argumentsMap(request)
 	if result != nil {
 		return result, nil
@@ -313,14 +313,14 @@ func (s *MinifluxServer) GetFeedEntries(_ context.Context, request mcp.CallToolR
 	if result != nil {
 		return result, nil
 	}
-	entries, err := s.client.FeedEntries(feedID, filter)
+	entries, err := s.client.FeedEntriesContext(ctx, feedID, filter)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch feed entries: %v", err)), nil
+		return mcp.NewToolResultError("failed to fetch feed entries"), nil
 	}
-	return marshalToolResult(entries)
+	return marshalToolResult(toMCPEntryResultSet(entries))
 }
 
-func (s *MinifluxServer) GetFeedEntry(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MinifluxServer) GetFeedEntry(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments, result := argumentsMap(request)
 	if result != nil {
 		return result, nil
@@ -333,14 +333,14 @@ func (s *MinifluxServer) GetFeedEntry(_ context.Context, request mcp.CallToolReq
 	if result != nil {
 		return result, nil
 	}
-	entry, err := s.client.FeedEntry(feedID, entryID)
+	entry, err := s.client.FeedEntryContext(ctx, feedID, entryID)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch feed entry: %v", err)), nil
+		return mcp.NewToolResultError("failed to fetch feed entry"), nil
 	}
-	return marshalToolResult(entry)
+	return marshalToolResult(toMCPEntryDetail(entry))
 }
 
-func (s *MinifluxServer) GetCategoryFeeds(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MinifluxServer) GetCategoryFeeds(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments, result := argumentsMap(request)
 	if result != nil {
 		return result, nil
@@ -349,14 +349,14 @@ func (s *MinifluxServer) GetCategoryFeeds(_ context.Context, request mcp.CallToo
 	if result != nil {
 		return result, nil
 	}
-	feeds, err := s.client.CategoryFeeds(categoryID)
+	feeds, err := s.client.CategoryFeedsContext(ctx, categoryID)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch category feeds: %v", err)), nil
+		return mcp.NewToolResultError("failed to fetch category feeds"), nil
 	}
-	return marshalToolResult(feeds)
+	return marshalToolResult(toMCPFeeds(feeds))
 }
 
-func (s *MinifluxServer) GetCategoryEntries(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MinifluxServer) GetCategoryEntries(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments, result := argumentsMap(request)
 	if result != nil {
 		return result, nil
@@ -369,14 +369,14 @@ func (s *MinifluxServer) GetCategoryEntries(_ context.Context, request mcp.CallT
 	if result != nil {
 		return result, nil
 	}
-	entries, err := s.client.CategoryEntries(categoryID, filter)
+	entries, err := s.client.CategoryEntriesContext(ctx, categoryID, filter)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch category entries: %v", err)), nil
+		return mcp.NewToolResultError("failed to fetch category entries"), nil
 	}
-	return marshalToolResult(entries)
+	return marshalToolResult(toMCPEntryResultSet(entries))
 }
 
-func (s *MinifluxServer) GetCategoryEntry(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MinifluxServer) GetCategoryEntry(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments, result := argumentsMap(request)
 	if result != nil {
 		return result, nil
@@ -389,14 +389,14 @@ func (s *MinifluxServer) GetCategoryEntry(_ context.Context, request mcp.CallToo
 	if result != nil {
 		return result, nil
 	}
-	entry, err := s.client.CategoryEntry(categoryID, entryID)
+	entry, err := s.client.CategoryEntryContext(ctx, categoryID, entryID)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch category entry: %v", err)), nil
+		return mcp.NewToolResultError("failed to fetch category entry"), nil
 	}
-	return marshalToolResult(entry)
+	return marshalToolResult(toMCPEntryDetail(entry))
 }
 
-func (s *MinifluxServer) ToggleStarred(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MinifluxServer) ToggleStarred(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments, result := argumentsMap(request)
 	if result != nil {
 		return result, nil
@@ -405,31 +405,34 @@ func (s *MinifluxServer) ToggleStarred(_ context.Context, request mcp.CallToolRe
 	if result != nil {
 		return result, nil
 	}
-	if err := s.client.ToggleStarred(entryID); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to toggle starred status: %v", err)), nil
+	if err := s.client.ToggleStarredContext(ctx, entryID); err != nil {
+		return mcp.NewToolResultError("failed to toggle starred status"), nil
 	}
 	return mcp.NewToolResultText(fmt.Sprintf("Starred status toggled for entry %d", entryID)), nil
 }
 
-func (s *MinifluxServer) GetVersion(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	version, err := s.client.Version()
+func (s *MinifluxServer) GetVersion(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	version, err := s.client.VersionContext(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch version: %v", err)), nil
+		return mcp.NewToolResultError("failed to fetch version"), nil
 	}
-	return marshalToolResult(version)
+	return marshalToolResult(MCPVersion{Version: version.Version})
 }
 
-func (s *MinifluxServer) Healthcheck(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if err := s.client.Healthcheck(); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("healthcheck failed: %v", err)), nil
+func (s *MinifluxServer) Healthcheck(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := s.client.HealthcheckContext(ctx); err != nil {
+		return mcp.NewToolResultError("healthcheck failed"), nil
 	}
 	return mcp.NewToolResultText("Healthcheck passed"), nil
 }
 
-func (s *MinifluxServer) FetchCounters(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	counters, err := s.client.FetchCounters()
+func (s *MinifluxServer) FetchCounters(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	counters, err := s.client.FetchCountersContext(ctx)
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to fetch counters: %v", err)), nil
+		return mcp.NewToolResultError("failed to fetch counters"), nil
 	}
-	return marshalToolResult(counters)
+	return marshalToolResult(MCPFeedCounters{
+		ReadCounters:   counters.ReadCounters,
+		UnreadCounters: counters.UnreadCounters,
+	})
 }
