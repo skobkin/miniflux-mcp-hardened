@@ -1,5 +1,7 @@
 # Miniflux MCP Hardened [![ci](https://ci.skobk.in/api/badges/19/status.svg)](https://ci.skobk.in/repos/19)
 
+![Miniflux MCP Hardened banner](docs/miniflux-mcp-banner.svg)
+
 A deliberately small, security-focused Model Context Protocol server for reading a Miniflux account with an LLM agent.
 
 This fork is read-only by default. It exposes sanitized, purpose-built responses rather than raw Miniflux API objects, and it does not aim for Miniflux API completeness.

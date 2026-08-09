@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">MiniFlux MCP logo</title>
+  <desc id="desc">A white M crossed by a cyan data-flow path with two connection nodes on a graphite rounded square.</desc>
+
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="#20272f"/>
+
+  <!-- M: deliberately chunky so it survives 24x24 rendering -->
+  <path fill="#f7f9fb" d="
+    M112 116
+    H174
+    L256 211
+    L338 116
+    H400
+    V396
+    H332
+    V235
+    L280 296
+    H232
+    L180 235
+    V396
+    H112
+    Z"/>
+
+  <!-- dark cuts keep the center readable when the cyan path overlaps -->
+  <path fill="#20272f" d="
+    M180 235
+    L232 296
+    H280
+    L332 235
+    V310
+    L281 367
+    H231
+    L180 310
+    Z"/>
+
+  <!-- flux/data path -->
+  <path d="M108 372
+           C151 283 206 266 270 252
+           C344 236 386 206 407 137"
+        fill="none"
+        stroke="#13d8df"
+        stroke-width="42"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+
+  <!-- endpoint nodes -->
+  <circle cx="108" cy="372" r="42" fill="#13d8df"/>
+  <circle cx="108" cy="372" r="20" fill="#20272f"/>
+
+  <circle cx="407" cy="137" r="46" fill="#13d8df"/>
+  <circle cx="407" cy="137" r="23" fill="#ff8a1f"/>
+</svg>

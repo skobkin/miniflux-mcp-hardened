@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 320" role="img" aria-labelledby="title desc">
+  <title id="title">MiniFlux MCP banner</title>
+  <desc id="desc">Repository banner for the hardened MiniFlux MCP server fork.</desc>
+
+  <rect x="8" y="8" width="1064" height="304" rx="42" fill="#20272f"/>
+
+  <!-- restrained circuit decoration -->
+  <g fill="none" stroke="#38424d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity=".72">
+    <path d="M26 84h74l34 34h62"/>
+    <path d="M24 248h76l42-42h58"/>
+    <path d="M878 62h78l36 36h62"/>
+    <path d="M850 258h84l44-44h76"/>
+  </g>
+  <g fill="#38424d" opacity=".9">
+    <circle cx="100" cy="84" r="8"/>
+    <circle cx="142" cy="206" r="8"/>
+    <circle cx="956" cy="62" r="8"/>
+    <circle cx="934" cy="258" r="8"/>
+  </g>
+
+  <!-- logo mark -->
+  <g transform="translate(54 38) scale(.475)">
+    <rect x="16" y="16" width="480" height="480" rx="96" fill="#20272f"/>
+    <path fill="#f7f9fb" d="
+      M112 116 H174 L256 211 L338 116 H400 V396 H332 V235
+      L280 296 H232 L180 235 V396 H112 Z"/>
+    <path fill="#20272f" d="
+      M180 235 L232 296 H280 L332 235 V310
+      L281 367 H231 L180 310 Z"/>
+    <path d="M108 372
+             C151 283 206 266 270 252
+             C344 236 386 206 407 137"
+          fill="none" stroke="#13d8df" stroke-width="42"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="108" cy="372" r="42" fill="#13d8df"/>
+    <circle cx="108" cy="372" r="20" fill="#20272f"/>
+    <circle cx="407" cy="137" r="46" fill="#13d8df"/>
+    <circle cx="407" cy="137" r="23" fill="#ff8a1f"/>
+  </g>
+
+  <!-- editable text; generic fallback keeps the SVG portable -->
+  <text x="354" y="142"
+        fill="#f7f9fb"
+        font-family="Inter, DejaVu Sans, sans-serif"
+        font-size="72"
+        font-weight="700"
+        letter-spacing="-1.5">MiniFlux MCP</text>
+
+  <text x="358" y="204"
+        fill="#13d8df"
+        font-family="Inter, DejaVu Sans, sans-serif"
+        font-size="32"
+        font-weight="500">Hardened MCP server fork</text>
+
+  <g transform="translate(358 238)">
+    <circle cx="8" cy="8" r="8" fill="#ff8a1f"/>
+    <path d="M34 8h212" stroke="#38424d" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="262" cy="8" r="8" fill="#13d8df"/>
+  </g>
+</svg>
