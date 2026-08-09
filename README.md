@@ -2,105 +2,119 @@
 
 ![Miniflux MCP Hardened banner](docs/miniflux-mcp-banner.svg)
 
-A deliberately small, security-focused Model Context Protocol server for reading a Miniflux account with an LLM agent.
+A deliberately small, security-focused Model Context Protocol server for reading a Miniflux account with an LLM agent. It is read-only by default, returns purpose-built sanitized data, and does not aim for Miniflux API completeness.
 
-This fork is read-only by default. It exposes sanitized, purpose-built responses rather than raw Miniflux API objects, and it does not aim for Miniflux API completeness.
+## Differences from upstream
 
-## Security model
+This project is a hardened fork of [`tssujt/miniflux-mcp`](https://github.com/tssujt/miniflux-mcp). The upstream project exposes broad Miniflux API coverage; this fork narrows that surface to ordinary feed-reading workflows.
 
-- The default MCP surface contains only read tools.
-- Three ordinary reading-workflow mutations can be enabled individually with an explicit allowlist.
-- User administration, API-key management, broad mutations, feed/category management, and credential-management schemas are not exposed.
-- Feed responses omit subscription URLs and fetch configuration, including usernames, passwords, cookies, proxy URLs, and integration endpoints.
-- Entry responses contain only a sanitized nested feed identity. Entry lists omit article bodies; single-entry tools include article content.
-- Titles, descriptions, article content, links, and tags originate outside this server and must be treated as untrusted data, never as MCP instructions.
-- Streamable HTTP requires a Bearer token. Browser origins are denied unless explicitly allowlisted.
+| Area | Upstream | Hardened fork |
+| --- | --- | --- |
+| Tool surface | 40+ API-oriented tools | 13 default read tools and 3 individually opt-in writes |
+| Feeds | Read, create, update, delete, refresh, bulk operations, and icon access | Sanitized reads; only single-feed refresh can be enabled |
+| Entries | Read, save, fetch original content, bulk marking, starring, and status changes including `removed` | Bounded sanitized reads; only single-entry starring and `read`/`unread` changes can be enabled |
+| Categories | Read, create, update, delete, refresh, and bulk marking | Sanitized reads only |
+| Administration and utilities | User and API-key administration, discovery, export, history flushing, and raw media access | Not exposed; only compact version, health, and counter diagnostics remain |
+| Responses | Miniflux client objects can cross the MCP boundary | Explicit LLM-facing DTOs omit credentials and unnecessary internal fields, including in nested objects |
+| Inputs and result size | Broad API-shaped schemas | Strict integer validation, bounded entry collections, no credential-bearing tool arguments |
+| HTTP and runtime | STDIO and Bearer-protected Streamable HTTP | Adds strict token/origin validation, bounded requests, graceful shutdown, and a minimal non-root container |
 
-One server process uses one configured Miniflux identity. Miniflux permissions still apply behind the narrower MCP policy, so use a dedicated non-administrator account where practical.
+The removed capabilities are intentional security boundaries, not missing API-completeness work.
+
+### Security model
+
+- Only read tools are registered by default. The three supported writes require an explicit per-tool allowlist.
+- User administration, API-key management, broad mutations, feed/category management, and credential-management schemas are absent.
+- Feed responses omit subscription URLs and fetch configuration such as usernames, passwords, cookies, proxy URLs, and integration endpoints. Nested feed objects are sanitized too.
+- Titles, descriptions, article content, links, and tags are untrusted external data and must never be treated as MCP instructions.
+- Streamable HTTP requires a Bearer token and rejects browser origins unless they are explicitly allowlisted. Use HTTPS outside a trusted private network.
+- One server process uses one configured Miniflux identity. Miniflux permissions still apply, so use a dedicated non-administrator account where practical.
+
+## Tools
+
+`Default` indicates whether the tool is registered without `MCP_WRITE_TOOLS`; it is not a claim that private account data or external feed content is inherently trusted. `Upstream` records whether the tool existed in the original project.
+
+| Tool | Default | Upstream | Description |
+| --- | :---: | :---: | --- |
+| `get_feeds` | ✅ | ✅ | List sanitized feed metadata. |
+| `get_feed` | ✅ | ✅ | Get sanitized metadata for one feed. |
+| `get_feed_entries` | ✅ | ✅ | List entries from one feed. |
+| `get_feed_entry` | ✅ | ✅ | Get one entry from a feed, including article content. |
+| `get_entries` | ✅ | ✅ | List entries with optional status, scope, time, search, starred, and ordering filters. |
+| `get_entry` | ✅ | ✅ | Get one entry, including article content. |
+| `get_categories` | ✅ | ✅ | List sanitized categories. |
+| `get_category_feeds` | ✅ | ✅ | List sanitized feeds in one category. |
+| `get_category_entries` | ✅ | ✅ | List entries in one category. |
+| `get_category_entry` | ✅ | ✅ | Get one entry from a category, including article content. |
+| `get_version` | ✅ | ✅ | Get the Miniflux version. |
+| `healthcheck` | ✅ | ✅ | Check Miniflux availability. |
+| `fetch_counters` | ✅ | ✅ | Get per-feed read and unread counters. |
+| `update_entry_status` | ❌ | ✅ | Mark one explicitly selected entry `read` or `unread`. |
+| `toggle_starred` | ❌ | ✅ | Toggle one explicitly selected entry's starred state. |
+| `refresh_feed` | ❌ | ✅ | Request a refresh of one explicitly selected feed. |
+
+Entry collections default to 50 results and reject limits above 100. IDs and Unix timestamp filters must be positive integers; offsets must be non-negative. Categories expose identity, visibility, and feed/unread counts; feeds expose identity, public site metadata, language, known check timestamps, disabled/parsing state, and a sanitized category. Unknown check times are omitted. Entry lists expose article metadata, status, tags, and sanitized feed identity without article bodies; single-entry responses add content, comments URL, and creation time.
+
+Subscription `feed_url`, Miniflux user IDs, credentials, cookies, fetch/proxy settings, integration URLs, share codes, internal hashes, icons, and enclosures are intentionally absent. Version and counter tools return compact purpose-specific objects.
 
 ## Configuration
 
-### Miniflux connection
-
-| Variable | Description | Required |
+| Variable | Description | Default / requirement |
 | --- | --- | --- |
-| `MINIFLUX_URL` | Miniflux base URL | Yes |
-| `MINIFLUX_API_KEY` | API key used by this server | Yes, unless username/password are used |
-| `MINIFLUX_USERNAME` | Miniflux username | With `MINIFLUX_PASSWORD` when no API key is set |
-| `MINIFLUX_PASSWORD` | Miniflux password | With `MINIFLUX_USERNAME` when no API key is set |
-| `MCP_WRITE_TOOLS` | Comma-separated allowlist of supported write tools | No; empty means read-only |
+| `MINIFLUX_URL` | Miniflux base URL | Required |
+| `MINIFLUX_API_KEY` | API key used by this server | Required unless username/password are used |
+| `MINIFLUX_USERNAME` | Miniflux username | Use with `MINIFLUX_PASSWORD` when no API key is set |
+| `MINIFLUX_PASSWORD` | Miniflux password | Use with `MINIFLUX_USERNAME` when no API key is set |
+| `MCP_WRITE_TOOLS` | Comma-separated write-tool allowlist | Empty; read-only |
+| `MCP_TRANSPORT` | `stdio` or `streamable-http` | `stdio` |
+| `MCP_HTTP_ADDR` | HTTP listen address | `:8080` |
+| `MCP_HTTP_PATH` | MCP endpoint path | `/mcp` |
+| `MCP_AUTH_TOKEN` | Bearer token protecting the MCP endpoint | Required for HTTP |
+| `MCP_ALLOWED_ORIGINS` | Comma-separated browser origins | Empty; reject requests carrying `Origin` |
 
-If both authentication forms are present, the API key is used. Credentials configure the server itself and are never accepted as MCP tool arguments.
-Health and authentication probes share a 15-second startup deadline and stop early on process termination.
+If both Miniflux authentication forms are configured, the API key is used. Credentials configure the server and are never accepted as MCP tool arguments. Health and authentication probes share a 15-second startup deadline and stop early on process termination.
 
-### Optional write tools
-
-Only these values are accepted in `MCP_WRITE_TOOLS`:
-
-- `update_entry_status` marks one explicitly selected entry `read` or `unread`.
-- `toggle_starred` toggles one explicitly selected entry's starred state.
-- `refresh_feed` asks Miniflux to refresh one explicitly selected feed.
-
-For example:
+Enable any combination of the three non-default tools listed in the catalog:
 
 ```text
 MCP_WRITE_TOOLS=update_entry_status,toggle_starred,refresh_feed
 ```
 
-Names are case-sensitive. Unknown, removed, or empty list elements cause startup to fail instead of being ignored. Disabled tools are omitted from MCP registration entirely.
+Names are case-sensitive. Unknown, removed, or empty list elements fail startup, and disabled write tools are omitted from MCP registration entirely.
 
-## Tool surface
+Configured browser origins must be exact `http://host[:port]` or `https://host[:port]` values without paths, credentials, queries, fragments, or wildcards. Scheme/host case and default ports are normalized. Requests without `Origin`, including ordinary non-browser MCP clients, remain usable. Authentication tokens with outer whitespace or newlines are rejected at startup.
 
-The following 13 tools are always available:
+## Usage
 
-### Feeds and categories
+### Add to an agent
 
-- `get_feeds`
-- `get_feed`
-- `get_feed_entries`
-- `get_feed_entry`
-- `get_categories`
-- `get_category_feeds`
-- `get_category_entries`
-- `get_category_entry`
+The STDIO examples assume `MINIFLUX_URL` and `MINIFLUX_API_KEY` are exported and the binary is available at `/path/to/miniflux-mcp`. The HTTP examples assume a server is listening on loopback and `MCP_AUTH_TOKEN` is exported.
 
-### Entries and diagnostics
-
-- `get_entries`
-- `get_entry`
-- `get_version`
-- `healthcheck`
-- `fetch_counters`
-
-Entry collection tools default to 50 results and reject limits above 100. IDs and Unix timestamp filters must be positive integers; offsets must be non-negative.
-
-### Sanitized responses
-
-- Categories expose identity, visibility, and available feed/unread counts.
-- Feeds expose identity, public site metadata, language, known check timestamps, disabled state, parsing-error count, and a sanitized category. Unknown check times are omitted.
-- Entry lists expose article metadata, status, tags, and sanitized feed identity without article content.
-- Single-entry tools additionally expose article content, comments URL, and creation timestamp.
-- Version and counter tools return compact purpose-specific objects.
-
-Subscription `feed_url`, Miniflux user IDs, credentials, cookies, fetch/proxy settings, integration URLs, share codes, internal hashes, icons, and enclosures are intentionally absent.
-
-## Local stdio server
-
-`stdio` is the default transport and is intended for an MCP client that starts the server locally.
-
-Build and run with Docker or Podman:
+Claude Code, STDIO:
 
 ```bash
-docker build -t miniflux-mcp-hardened .
-docker run -i --rm \
-  --read-only \
-  --cap-drop=ALL \
-  --security-opt=no-new-privileges \
-  --env-file .env \
-  miniflux-mcp-hardened
+claude mcp add --scope user --transport stdio miniflux --env MINIFLUX_URL="$MINIFLUX_URL" --env MINIFLUX_API_KEY="$MINIFLUX_API_KEY" -- /path/to/miniflux-mcp
 ```
 
-Example `.mcp.json`:
+Claude Code, HTTP:
+
+```bash
+claude mcp add --scope user --transport http miniflux http://127.0.0.1:8080/mcp --header "Authorization: Bearer $MCP_AUTH_TOKEN"
+```
+
+Codex, STDIO:
+
+```bash
+codex mcp add miniflux --env MINIFLUX_URL="$MINIFLUX_URL" --env MINIFLUX_API_KEY="$MINIFLUX_API_KEY" -- /path/to/miniflux-mcp
+```
+
+Codex, HTTP:
+
+```bash
+codex mcp add miniflux --url http://127.0.0.1:8080/mcp --bearer-token-env-var MCP_AUTH_TOKEN
+```
+
+For project-scoped clients that support `.mcp.json`, choose either transport. This STDIO example launches the published container:
 
 ```json
 {
@@ -108,19 +122,9 @@ Example `.mcp.json`:
     "miniflux": {
       "type": "stdio",
       "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--read-only",
-        "--cap-drop=ALL",
-        "--security-opt=no-new-privileges",
-        "-e",
-        "MINIFLUX_URL",
-        "-e",
-        "MINIFLUX_API_KEY",
-        "miniflux-mcp-hardened"
-      ],
+      "args": ["run", "-i", "--rm", "--read-only", "--cap-drop=ALL",
+        "--security-opt=no-new-privileges", "-e", "MINIFLUX_URL", "-e", "MINIFLUX_API_KEY",
+        "skobkin/miniflux-mcp-hardened:latest"],
       "env": {
         "MINIFLUX_URL": "${MINIFLUX_URL}",
         "MINIFLUX_API_KEY": "${MINIFLUX_API_KEY}"
@@ -130,19 +134,34 @@ Example `.mcp.json`:
 }
 ```
 
-## Remote Streamable HTTP server
+For an already-running HTTP server:
 
-| Variable | Description | Default |
-| --- | --- | --- |
-| `MCP_TRANSPORT` | Set to `streamable-http` | `stdio` |
-| `MCP_HTTP_ADDR` | Listen address | `:8080` |
-| `MCP_HTTP_PATH` | MCP endpoint path | `/mcp` |
-| `MCP_AUTH_TOKEN` | Bearer token protecting the MCP endpoint | Required in HTTP mode |
-| `MCP_ALLOWED_ORIGINS` | Comma-separated browser origins such as `https://client.example`; scheme/host case and default ports are normalized | Empty; reject all requests carrying `Origin` |
+```json
+{
+  "mcpServers": {
+    "miniflux": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {"Authorization": "Bearer ${MCP_AUTH_TOKEN}"}
+    }
+  }
+}
+```
 
-Requests without `Origin`, including ordinary non-browser MCP clients, remain usable. Configured origins must be exact `http://host[:port]` or `https://host[:port]` values without paths, credentials, queries, or fragments. There is no wildcard mode.
+### Run with Docker or Podman
 
-Start an HTTP server behind an HTTPS reverse proxy:
+Run the default STDIO transport:
+
+```bash
+docker run -i --rm \
+  --read-only \
+  --cap-drop=ALL \
+  --security-opt=no-new-privileges \
+  --env-file .env \
+  skobkin/miniflux-mcp-hardened:latest
+```
+
+Run Streamable HTTP behind an HTTPS reverse proxy:
 
 ```bash
 docker run --rm \
@@ -153,17 +172,15 @@ docker run --rm \
   --env-file .env \
   -e MCP_TRANSPORT=streamable-http \
   -e MCP_AUTH_TOKEN \
-  miniflux-mcp-hardened
+  skobkin/miniflux-mcp-hardened:latest
 ```
-
-Clients send the configured secret as `Authorization: Bearer <token>`. Tokens with outer whitespace or newlines are rejected at startup rather than normalized. Request reads and header sizes are bounded; response writes remain unbounded because Streamable HTTP may use long-lived SSE streams. SIGTERM and SIGINT trigger a bounded graceful shutdown. `/healthz` is intentionally unauthenticated and returns only `ok`.
 
 Example Compose service:
 
 ```yaml
 services:
   miniflux-mcp:
-    build: .
+    image: skobkin/miniflux-mcp-hardened:latest
     restart: unless-stopped
     read_only: true
     cap_drop:
@@ -181,38 +198,13 @@ services:
       MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
 ```
 
-Terminate TLS at a reverse proxy whenever traffic leaves a trusted private network; otherwise the Bearer token and returned feed data are not encrypted in transit.
+Clients send `Authorization: Bearer <token>`. Request reads and header sizes are bounded; response writes remain unbounded because Streamable HTTP may use long-lived SSE streams. SIGTERM and SIGINT trigger a bounded graceful shutdown. `/healthz` is intentionally unauthenticated and returns only `ok`.
 
 ## Continuous integration and releases
 
-Woodpecker CI is authoritative for this repository. Pushes and pull requests targeting `main` run formatting, lint, vet, unit, race, build, and end-to-end checks. End-to-end checks start pinned PostgreSQL and Miniflux containers inside the Woodpecker workflow and exercise both stdio and authenticated Streamable HTTP transports.
+Woodpecker CI runs formatting, lint, vet, unit, race, build, and end-to-end checks for pushes and pull requests targeting `main`. The end-to-end suite covers both STDIO and authenticated Streamable HTTP.
 
-Tags matching `v*` run the same checks before publishing:
-
-- a static Linux AMD64 archive and checksum to the Forgejo release;
-- `skobkin/miniflux-mcp-hardened` to Docker Hub with `latest`, major, minor, and patch tags.
-
-The release steps require these Woodpecker repository secrets:
-
-| Secret | Purpose |
-| --- | --- |
-| `FORGE_TOKEN` | Create the Forgejo release and upload its assets |
-| `DOCKER_LOGIN` | Authenticate to Docker Hub |
-| `DOCKER_TOKEN` | Push the release image and build cache to Docker Hub |
-
-## Deliberate differences from upstream
-
-The upstream-oriented implementation exposed broad Miniflux API coverage. This fork removes the following MCP tools rather than merely disabling them by documentation:
-
-- Feed management and bulk operations: `create_feed`, `update_feed`, `delete_feed`, `refresh_all_feeds`, `get_feed_icon`, `mark_feed_as_read`.
-- Entry operations outside the selected workflow: `save_entry`, `fetch_original_content`, `mark_all_as_read`.
-- Category mutations: `create_category`, `update_category`, `delete_category`, `mark_category_as_read`, `refresh_category`.
-- User administration: `get_users`, `get_me`, `get_user_by_id`, `get_user_by_username`, `create_user`, `delete_user`.
-- Network/export/administrative utilities: `discover`, `export`, `flush_history`.
-- API-key management: `get_api_keys`, `create_api_key`, `delete_api_key`.
-- Raw media lookups: `get_icon`, `get_enclosure`.
-
-The retained `update_entry_status` tool no longer accepts `removed`; only `read` and `unread` are supported. Feed create/update schemas and all credential-bearing arguments are absent. These are intentional security boundaries, not missing API-completeness work.
+Tags matching `v*` run the same checks before publishing a static Linux AMD64 archive and checksum to [Forgejo](https://git.skobk.in/skobkin/miniflux-mcp-hardened/releases) and versioned [`skobkin/miniflux-mcp-hardened`](https://hub.docker.com/r/skobkin/miniflux-mcp-hardened) images to Docker Hub.
 
 ## Development
 
@@ -226,15 +218,7 @@ golangci-lint run ./...
 go build ./...
 ```
 
-Tests use local fakes and `httptest`; a running Miniflux/PostgreSQL stack is not required for unit validation.
-
-Run the end-to-end suite with Docker Compose:
-
-```bash
-make e2e
-```
-
-When Miniflux is already running, use the Docker-independent target:
+Unit tests use local fakes and `httptest`; a running Miniflux/PostgreSQL stack is not required. Run the containerized end-to-end suite with `make e2e`, or target an existing Miniflux instance:
 
 ```bash
 make e2e-test \
