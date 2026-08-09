@@ -279,9 +279,14 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 	for _, tool := range listed.Tools {
 		toolNames = append(toolNames, tool.Name)
 	}
-	for _, name := range []string{"get_version", "create_category", "get_categories", "delete_category"} {
+	for _, name := range []string{"get_version", "get_categories", "get_entries", "get_entry"} {
 		if !slices.Contains(toolNames, name) {
 			t.Fatalf("tools/list did not include %q", name)
+		}
+	}
+	for _, name := range []string{"create_category", "delete_category", "create_user", "get_api_keys", "flush_history"} {
+		if slices.Contains(toolNames, name) {
+			t.Fatalf("tools/list unexpectedly included removed tool %q", name)
 		}
 	}
 
@@ -299,31 +304,6 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 		t.Fatal("get_version returned an empty version")
 	}
 
-	title := fmt.Sprintf("mcp-e2e-%d", time.Now().UnixNano())
-	categoryText, err := client.callTool("create_category", map[string]any{"title": title})
-	if err != nil {
-		t.Fatalf("create category: %v", err)
-	}
-	var category struct {
-		ID    int64  `json:"id"`
-		Title string `json:"title"`
-	}
-	if err := json.Unmarshal([]byte(categoryText), &category); err != nil {
-		t.Fatalf("decode created category: %v", err)
-	}
-	if category.ID == 0 || category.Title != title {
-		t.Fatalf("created category = %+v, want title %q and a non-zero ID", category, title)
-	}
-	createdCategoryID := category.ID
-	t.Cleanup(func() {
-		if createdCategoryID == 0 {
-			return
-		}
-		if _, err := client.callTool("delete_category", map[string]any{"category_id": createdCategoryID}); err != nil {
-			t.Errorf("clean up category %d: %v", createdCategoryID, err)
-		}
-	})
-
 	categoriesText, err := client.callTool("get_categories", map[string]any{})
 	if err != nil {
 		t.Fatalf("get categories: %v", err)
@@ -334,19 +314,9 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 	if err := json.Unmarshal([]byte(categoriesText), &categories); err != nil {
 		t.Fatalf("decode categories: %v", err)
 	}
-	found := slices.ContainsFunc(categories, func(candidate struct {
-		ID int64 `json:"id"`
-	}) bool {
-		return candidate.ID == category.ID
-	})
-	if !found {
-		t.Fatalf("get_categories did not return created category %d", category.ID)
+	if len(categories) == 0 {
+		t.Fatal("get_categories returned no categories")
 	}
-
-	if _, err := client.callTool("delete_category", map[string]any{"category_id": category.ID}); err != nil {
-		t.Fatalf("delete category: %v", err)
-	}
-	createdCategoryID = 0
 }
 
 func TestRemoteMCPServerWithMiniflux(t *testing.T) {
@@ -469,39 +439,14 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 	for _, tool := range listed.Tools {
 		toolNames = append(toolNames, tool.Name)
 	}
-	for _, name := range []string{"get_version", "create_category", "delete_category"} {
+	for _, name := range []string{"get_version", "get_categories", "get_entries"} {
 		if !slices.Contains(toolNames, name) {
 			t.Fatalf("tools/list did not include %q", name)
 		}
 	}
-
-	title := fmt.Sprintf("mcp-http-e2e-%d", time.Now().UnixNano())
-	categoryText, err := client.callTool("create_category", map[string]any{"title": title})
-	if err != nil {
-		t.Fatalf("create category through remote MCP: %v", err)
-	}
-	var category struct {
-		ID    int64  `json:"id"`
-		Title string `json:"title"`
-	}
-	if err := json.Unmarshal([]byte(categoryText), &category); err != nil {
-		t.Fatalf("decode created category: %v", err)
-	}
-	if category.ID == 0 || category.Title != title {
-		t.Fatalf("created category = %+v, want title %q and a non-zero ID", category, title)
-	}
-	createdCategoryID := category.ID
-	t.Cleanup(func() {
-		if createdCategoryID == 0 {
-			return
+	for _, name := range []string{"create_category", "delete_category", "create_user", "get_api_keys", "flush_history"} {
+		if slices.Contains(toolNames, name) {
+			t.Fatalf("remote tools/list unexpectedly included removed tool %q", name)
 		}
-		if _, err := client.callTool("delete_category", map[string]any{"category_id": createdCategoryID}); err != nil {
-			t.Errorf("clean up category %d: %v", createdCategoryID, err)
-		}
-	})
-
-	if _, err := client.callTool("delete_category", map[string]any{"category_id": category.ID}); err != nil {
-		t.Fatalf("delete category through remote MCP: %v", err)
 	}
-	createdCategoryID = 0
 }
