@@ -111,6 +111,7 @@ func TestParseEntryFilterValidation(t *testing.T) {
 		{name: "negative offset", arguments: map[string]interface{}{"offset": float64(-1)}},
 		{name: "zero feed id", arguments: map[string]interface{}{"feed_id": float64(0)}},
 		{name: "fractional id", arguments: map[string]interface{}{"feed_id": 1.5}},
+		{name: "zero published timestamp", arguments: map[string]interface{}{"published_after": float64(0)}},
 		{name: "invalid status", arguments: map[string]interface{}{"status": "pending"}},
 		{name: "invalid order", arguments: map[string]interface{}{"order": "password"}},
 		{name: "invalid direction", arguments: map[string]interface{}{"direction": "sideways"}},

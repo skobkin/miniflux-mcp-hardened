@@ -136,7 +136,7 @@ func parseEntryFilter(arguments map[string]interface{}) (*client.Filter, *mcp.Ca
 		"changed_before":   &filter.ChangedBefore,
 	}
 	for name, target := range timestampFields {
-		value, result := integerArgument(arguments, name, false, 0, 0)
+		value, result := integerArgument(arguments, name, false, 1, 0)
 		if result != nil {
 			return nil, result
 		}
