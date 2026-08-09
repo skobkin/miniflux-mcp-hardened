@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26.5-alpine3.24 AS builder
 
 ARG VERSION=dev
 ARG REVISION=unknown
@@ -15,19 +15,19 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -buildvcs=false \
     -ldflags "-X main.Version=${VERSION} -X main.Revision=${REVISION} -X main.BuildDate=${BUILD_DATE}" \
-    -o miniflux-mcp .
+    -o /out/miniflux-mcp .
 
-FROM alpine:latest
+FROM scratch
 
-RUN apk --no-cache add ca-certificates
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=builder --chown=65532:65532 /out/miniflux-mcp /miniflux-mcp
 
-WORKDIR /root/
-
-COPY --from=builder /app/miniflux-mcp .
+USER 65532:65532
 
 EXPOSE 8080
 
-CMD ["./miniflux-mcp"]
+ENTRYPOINT ["/miniflux-mcp"]
