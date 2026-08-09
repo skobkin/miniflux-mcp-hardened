@@ -167,7 +167,7 @@ steps:
       - event: tag
 
   release-docker:
-    image: woodpeckerci/plugin-docker-buildx:6.1.1
+    image: woodpeckerci/plugin-docker-buildx:6
     depends_on:
       - prepare-release
     settings:
