@@ -154,7 +154,7 @@ docker run --rm \
   miniflux-mcp-hardened
 ```
 
-Clients send the configured secret as `Authorization: Bearer <token>`. Request reads and header sizes are bounded; response writes remain unbounded because Streamable HTTP may use long-lived SSE streams. SIGTERM and SIGINT trigger a bounded graceful shutdown. `/healthz` is intentionally unauthenticated and returns only `ok`.
+Clients send the configured secret as `Authorization: Bearer <token>`. Tokens with outer whitespace or newlines are rejected at startup rather than normalized. Request reads and header sizes are bounded; response writes remain unbounded because Streamable HTTP may use long-lived SSE streams. SIGTERM and SIGINT trigger a bounded graceful shutdown. `/healthz` is intentionally unauthenticated and returns only `ok`.
 
 Example Compose service:
 

@@ -87,6 +87,20 @@ func TestLoadTransportConfigRejectsInvalidHTTPPaths(t *testing.T) {
 	}
 }
 
+func TestLoadTransportConfigRejectsMalformedAuthTokens(t *testing.T) {
+	t.Setenv("MCP_TRANSPORT", transportStreamableHTTP)
+	t.Setenv("MCP_ALLOWED_ORIGINS", "")
+
+	for _, token := range []string{" secret", "secret ", "secret\n", "sec\rret"} {
+		t.Run(token, func(t *testing.T) {
+			t.Setenv("MCP_AUTH_TOKEN", token)
+			if _, err := loadTransportConfig(); err == nil {
+				t.Fatalf("loadTransportConfig accepted malformed auth token %q", token)
+			}
+		})
+	}
+}
+
 func TestHTTPOriginAndBearerProtection(t *testing.T) {
 	const (
 		token         = "correct-token"

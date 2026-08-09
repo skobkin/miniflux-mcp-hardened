@@ -52,6 +52,9 @@ func loadTransportConfig() (transportConfig, error) {
 		if cfg.AuthToken == "" {
 			return transportConfig{}, fmt.Errorf("MCP_AUTH_TOKEN is required when MCP_TRANSPORT=%s", transportStreamableHTTP)
 		}
+		if strings.ContainsAny(cfg.AuthToken, "\r\n") || strings.TrimSpace(cfg.AuthToken) != cfg.AuthToken {
+			return transportConfig{}, fmt.Errorf("MCP_AUTH_TOKEN must not begin or end with whitespace or contain newlines")
+		}
 		if err := validateHTTPPath(cfg.HTTPPath); err != nil {
 			return transportConfig{}, err
 		}
