@@ -192,7 +192,9 @@ func requireBearerToken(token string, next http.Handler) http.Handler {
 	expectedTokenHash := sha256.Sum256([]byte(token))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		scheme, providedToken, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+		scheme, providedToken, ok := strings.Cut(strings.TrimSpace(r.Header.Get("Authorization")), " ")
+		scheme = strings.TrimSpace(scheme)
+		providedToken = strings.TrimSpace(providedToken)
 		providedTokenHash := sha256.Sum256([]byte(providedToken))
 		if !ok || !strings.EqualFold(scheme, "Bearer") || subtle.ConstantTimeCompare(providedTokenHash[:], expectedTokenHash[:]) != 1 {
 			w.Header().Set("WWW-Authenticate", "Bearer")

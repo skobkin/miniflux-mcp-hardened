@@ -85,10 +85,12 @@ func TestHTTPOriginAndBearerProtection(t *testing.T) {
 		method            string
 		originHeaders     []string
 		token             string
+		authorization     string
 		wantStatus        int
 		wantAllowedOrigin string
 	}{
 		{name: "non-browser authenticated", method: http.MethodPost, token: token, wantStatus: http.StatusOK},
+		{name: "bearer whitespace", method: http.MethodPost, authorization: "  Bearer   correct-token  ", wantStatus: http.StatusOK},
 		{name: "non-browser missing token", method: http.MethodPost, wantStatus: http.StatusUnauthorized},
 		{name: "allowed origin authenticated", method: http.MethodPost, originHeaders: []string{allowedOrigin}, token: token, wantStatus: http.StatusOK, wantAllowedOrigin: allowedOrigin},
 		{name: "equivalent origin authenticated", method: http.MethodPost, originHeaders: []string{"HTTPS://CLIENT.EXAMPLE:443"}, token: token, wantStatus: http.StatusOK, wantAllowedOrigin: "HTTPS://CLIENT.EXAMPLE:443"},
@@ -104,7 +106,9 @@ func TestHTTPOriginAndBearerProtection(t *testing.T) {
 			for _, origin := range test.originHeaders {
 				request.Header.Add("Origin", origin)
 			}
-			if test.token != "" {
+			if test.authorization != "" {
+				request.Header.Set("Authorization", test.authorization)
+			} else if test.token != "" {
 				request.Header.Set("Authorization", "Bearer "+test.token)
 			}
 			response := httptest.NewRecorder()
