@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -23,6 +25,7 @@ const (
 	httpReadHeaderTimeout   = 5 * time.Second
 	httpIdleTimeout         = 2 * time.Minute
 	httpMaxHeaderBytes      = 32 << 10
+	httpShutdownTimeout     = 10 * time.Second
 )
 
 type transportConfig struct {
@@ -135,18 +138,18 @@ func envOrDefault(name, fallback string) string {
 	return fallback
 }
 
-func serveMCP(mcpServer *server.MCPServer, cfg transportConfig) error {
+func serveMCP(ctx context.Context, mcpServer *server.MCPServer, cfg transportConfig) error {
 	switch cfg.Transport {
 	case transportStdio:
 		return server.ServeStdio(mcpServer)
 	case transportStreamableHTTP:
-		return serveStreamableHTTP(mcpServer, cfg)
+		return serveStreamableHTTP(ctx, mcpServer, cfg)
 	default:
 		return fmt.Errorf("unsupported MCP transport %q", cfg.Transport)
 	}
 }
 
-func serveStreamableHTTP(mcpServer *server.MCPServer, cfg transportConfig) error {
+func serveStreamableHTTP(ctx context.Context, mcpServer *server.MCPServer, cfg transportConfig) error {
 	mcpHandler := server.NewStreamableHTTPServer(
 		mcpServer,
 		server.WithStateLess(true),
@@ -157,7 +160,11 @@ func serveStreamableHTTP(mcpServer *server.MCPServer, cfg transportConfig) error
 	mux.HandleFunc("/healthz", healthcheckHTTP)
 
 	httpServer := newHTTPServer(cfg.HTTPAddr, mux)
-	return httpServer.ListenAndServe()
+	listener, err := net.Listen("tcp", cfg.HTTPAddr)
+	if err != nil {
+		return err
+	}
+	return serveHTTPServer(ctx, httpServer, listener)
 }
 
 func newHTTPServer(address string, handler http.Handler) *http.Server {
@@ -170,6 +177,31 @@ func newHTTPServer(address string, handler http.Handler) *http.Server {
 		MaxHeaderBytes:    httpMaxHeaderBytes,
 		// Streamable HTTP may use long-lived SSE responses, so a server-wide
 		// WriteTimeout would terminate valid streams.
+	}
+}
+
+func serveHTTPServer(ctx context.Context, httpServer *http.Server, listener net.Listener) error {
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- httpServer.Serve(listener)
+	}()
+
+	select {
+	case err := <-serverErrors:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("shut down HTTP server: %w", err)
+		}
+		if err := <-serverErrors; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
 	}
 }
 

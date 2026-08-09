@@ -4,6 +4,8 @@ import (
 	"context"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/mark3labs/mcp-go/server"
 	"miniflux.app/v2/client"
@@ -66,6 +68,9 @@ func NewMinifluxServer() *MinifluxServer {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	transport, err := loadTransportConfig()
 	if err != nil {
 		log.Fatalf("Invalid transport configuration: %v", err)
@@ -84,7 +89,7 @@ func main() {
 	)
 	minifluxServer.RegisterTools(mcpServer, enabledWrites)
 
-	if err := serveMCP(mcpServer, transport); err != nil {
+	if err := serveMCP(ctx, mcpServer, transport); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

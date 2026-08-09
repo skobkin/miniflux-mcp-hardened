@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestParseAllowedOrigins(t *testing.T) {
@@ -194,5 +197,40 @@ func TestHTTPServerBoundsRequestReads(t *testing.T) {
 	}
 	if server.WriteTimeout != 0 {
 		t.Errorf("WriteTimeout = %s, want zero for SSE support", server.WriteTimeout)
+	}
+}
+
+func TestHTTPServerShutsDownCleanly(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	requestHandled := make(chan struct{})
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(requestHandled)
+		w.WriteHeader(http.StatusOK)
+	})
+	server := newHTTPServer(listener.Addr().String(), handler)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- serveHTTPServer(ctx, server, listener)
+	}()
+
+	response, err := (&http.Client{Timeout: time.Second}).Get("http://" + listener.Addr().String())
+	if err != nil {
+		t.Fatalf("request server: %v", err)
+	}
+	_ = response.Body.Close()
+	<-requestHandled
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("serveHTTPServer: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("HTTP server did not shut down")
 	}
 }
