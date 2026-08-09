@@ -29,6 +29,7 @@ type fakeMinifluxClient struct {
 
 func (f *fakeMinifluxClient) HealthcheckContext(ctx context.Context) error {
 	f.lastContext = ctx
+
 	return nil
 }
 
@@ -37,21 +38,25 @@ func (f *fakeMinifluxClient) VersionContext(ctx context.Context) (*client.Versio
 	if f.nilVersion {
 		return nil, nil
 	}
+
 	return &client.VersionResponse{Version: "test"}, nil
 }
 
 func (f *fakeMinifluxClient) CategoriesContext(ctx context.Context) (client.Categories, error) {
 	f.lastContext = ctx
+
 	return nil, nil
 }
 
 func (f *fakeMinifluxClient) CategoryFeedsContext(ctx context.Context, _ int64) (client.Feeds, error) {
 	f.lastContext = ctx
+
 	return f.feeds, f.feedsError
 }
 
 func (f *fakeMinifluxClient) FeedsContext(ctx context.Context) (client.Feeds, error) {
 	f.lastContext = ctx
+
 	return f.feeds, f.feedsError
 }
 
@@ -60,51 +65,61 @@ func (f *fakeMinifluxClient) FeedContext(ctx context.Context, _ int64) (*client.
 	if len(f.feeds) == 0 {
 		return nil, f.feedsError
 	}
+
 	return f.feeds[0], f.feedsError
 }
 
 func (f *fakeMinifluxClient) RefreshFeedContext(ctx context.Context, _ int64) error {
 	f.lastContext = ctx
+
 	return nil
 }
 
 func (f *fakeMinifluxClient) FeedEntryContext(ctx context.Context, _, _ int64) (*client.Entry, error) {
 	f.lastContext = ctx
+
 	return f.entry, f.entryError
 }
 
 func (f *fakeMinifluxClient) CategoryEntryContext(ctx context.Context, _, _ int64) (*client.Entry, error) {
 	f.lastContext = ctx
+
 	return f.entry, f.entryError
 }
 
 func (f *fakeMinifluxClient) EntryContext(ctx context.Context, _ int64) (*client.Entry, error) {
 	f.lastContext = ctx
+
 	return f.entry, f.entryError
 }
 
 func (f *fakeMinifluxClient) EntriesContext(ctx context.Context, _ *client.Filter) (*client.EntryResultSet, error) {
 	f.lastContext = ctx
+
 	return f.entries, f.entryError
 }
 
 func (f *fakeMinifluxClient) FeedEntriesContext(ctx context.Context, _ int64, _ *client.Filter) (*client.EntryResultSet, error) {
 	f.lastContext = ctx
+
 	return f.entries, f.entryError
 }
 
 func (f *fakeMinifluxClient) CategoryEntriesContext(ctx context.Context, _ int64, _ *client.Filter) (*client.EntryResultSet, error) {
 	f.lastContext = ctx
+
 	return f.entries, f.entryError
 }
 
 func (f *fakeMinifluxClient) UpdateEntriesContext(ctx context.Context, _ []int64, _ string) error {
 	f.lastContext = ctx
+
 	return nil
 }
 
 func (f *fakeMinifluxClient) ToggleStarredContext(ctx context.Context, _ int64) error {
 	f.lastContext = ctx
+
 	return nil
 }
 
@@ -113,6 +128,7 @@ func (f *fakeMinifluxClient) FetchCountersContext(ctx context.Context) (*client.
 	if f.nilCounters {
 		return nil, nil
 	}
+
 	return &client.FeedCounters{}, nil
 }
 
@@ -128,6 +144,7 @@ func resultText(t *testing.T, result *mcp.CallToolResult) string {
 	if !ok {
 		t.Fatalf("result content type = %T, want text", result.Content[0])
 	}
+
 	return content.Text
 }
 

@@ -92,6 +92,7 @@ func scopedEntryProperties(scopeName string) map[string]interface{} {
 		"limit":  entryLimitProperty(),
 		"offset": map[string]interface{}{"type": "integer", "minimum": 0, "description": "Pagination offset"},
 	}
+
 	return properties
 }
 
@@ -141,6 +142,7 @@ func (s *MinifluxServer) toolDefinitions(enabledWrites writeToolSet) []ToolDefin
 			definitions = append(definitions, definition)
 		}
 	}
+
 	return definitions
 }
 

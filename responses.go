@@ -78,6 +78,7 @@ func toMCPCategory(category *client.Category) *MCPCategory {
 	if category == nil {
 		return nil
 	}
+
 	return &MCPCategory{
 		ID:           category.ID,
 		Title:        category.Title,
@@ -91,6 +92,7 @@ func toMCPCategoryIdentity(category *client.Category) *MCPCategoryIdentity {
 	if category == nil {
 		return nil
 	}
+
 	return &MCPCategoryIdentity{ID: category.ID, Title: category.Title}
 }
 
@@ -98,6 +100,7 @@ func toMCPFeed(feed *client.Feed) *MCPFeed {
 	if feed == nil {
 		return nil
 	}
+
 	return &MCPFeed{
 		ID:                feed.ID,
 		Title:             feed.Title,
@@ -116,6 +119,7 @@ func nonZeroTime(value time.Time) *time.Time {
 	if value.IsZero() {
 		return nil
 	}
+
 	return &value
 }
 
@@ -127,6 +131,7 @@ func toMCPFeeds(feeds client.Feeds) []*MCPFeed {
 		}
 		result = append(result, toMCPFeed(feed))
 	}
+
 	return result
 }
 
@@ -134,6 +139,7 @@ func toMCPFeedIdentity(feed *client.Feed) *MCPFeedIdentity {
 	if feed == nil {
 		return nil
 	}
+
 	return &MCPFeedIdentity{
 		ID:       feed.ID,
 		Title:    feed.Title,
@@ -145,6 +151,7 @@ func toMCPEntrySummary(entry *client.Entry) MCPEntrySummary {
 	if entry == nil {
 		return MCPEntrySummary{}
 	}
+
 	return MCPEntrySummary{
 		ID:          entry.ID,
 		Title:       entry.Title,
@@ -165,6 +172,7 @@ func toMCPEntryDetail(entry *client.Entry) *MCPEntryDetail {
 	if entry == nil {
 		return nil
 	}
+
 	return &MCPEntryDetail{
 		MCPEntrySummary: toMCPEntrySummary(entry),
 		CommentsURL:     entry.CommentsURL,
@@ -187,6 +195,7 @@ func toMCPEntryResultSet(entries *client.EntryResultSet) *MCPEntryResultSet {
 		}
 		result.Entries = append(result.Entries, toMCPEntrySummary(entry))
 	}
+
 	return result
 }
 
@@ -198,6 +207,7 @@ func toMCPCategories(categories client.Categories) []*MCPCategory {
 		}
 		result = append(result, toMCPCategory(category))
 	}
+
 	return result
 }
 
@@ -213,6 +223,7 @@ func toMCPFeedCounters(counters *client.FeedCounters) *MCPFeedCounters {
 	if unreads == nil {
 		unreads = map[int64]int{}
 	}
+
 	return &MCPFeedCounters{
 		ReadCounters:   reads,
 		UnreadCounters: unreads,

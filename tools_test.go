@@ -31,6 +31,7 @@ func TestParseWriteTools(t *testing.T) {
 				if err == nil {
 					t.Fatalf("parseWriteTools(%q) succeeded, want error", test.value)
 				}
+
 				return
 			}
 			if err != nil {
@@ -167,6 +168,7 @@ func toolNames(definitions []ToolDefinition) []string {
 		result = append(result, definition.Tool.Name)
 	}
 	sort.Strings(result)
+
 	return result
 }
 
@@ -176,6 +178,7 @@ func containsString(values []string, expected string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 

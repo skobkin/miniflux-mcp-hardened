@@ -41,6 +41,7 @@ func TestParseAllowedOrigins(t *testing.T) {
 				if err == nil {
 					t.Fatalf("parseAllowedOrigins(%q) succeeded, want error", test.value)
 				}
+
 				return
 			}
 			if err != nil {

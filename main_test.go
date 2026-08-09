@@ -18,11 +18,13 @@ type fakeStartupClient struct {
 
 func (f *fakeStartupClient) HealthcheckContext(ctx context.Context) error {
 	f.healthCtx = ctx
+
 	return f.healthError
 }
 
 func (f *fakeStartupClient) MeContext(ctx context.Context) (*client.User, error) {
 	f.authCtx = ctx
+
 	return f.user, f.authError
 }
 

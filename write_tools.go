@@ -11,6 +11,7 @@ type writeToolSet map[string]struct{}
 
 func (s writeToolSet) contains(name string) bool {
 	_, ok := s[name]
+
 	return ok
 }
 
@@ -19,6 +20,7 @@ func approvedWriteTools() writeToolSet {
 	for _, definition := range (&MinifluxServer{}).writeToolDefinitions() {
 		result[definition.Tool.Name] = struct{}{}
 	}
+
 	return result
 }
 
@@ -39,5 +41,6 @@ func parseWriteTools(value string) (writeToolSet, error) {
 		}
 		result[name] = struct{}{}
 	}
+
 	return result, nil
 }

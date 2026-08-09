@@ -63,6 +63,7 @@ func loadTransportConfig() (transportConfig, error) {
 			return transportConfig{}, err
 		}
 		cfg.AllowedOrigins = allowedOrigins
+
 		return cfg, nil
 	default:
 		return transportConfig{}, fmt.Errorf("unsupported MCP_TRANSPORT %q (supported: %s, %s)", cfg.Transport, transportStdio, transportStreamableHTTP)
@@ -86,6 +87,7 @@ func validateHTTPPath(httpPath string) (err error) {
 		}
 	}()
 	http.NewServeMux().Handle(httpPath, http.NotFoundHandler())
+
 	return nil
 }
 
@@ -106,6 +108,7 @@ func parseAllowedOrigins(value string) (map[string]struct{}, error) {
 		}
 		allowed[normalized] = struct{}{}
 	}
+
 	return allowed, nil
 }
 
@@ -139,6 +142,7 @@ func normalizeOrigin(origin string) (string, error) {
 	} else if strings.Contains(hostname, ":") {
 		hostname = "[" + hostname + "]"
 	}
+
 	return scheme + "://" + hostname, nil
 }
 
@@ -146,6 +150,7 @@ func envOrDefault(name, fallback string) string {
 	if value := os.Getenv(name); value != "" {
 		return value
 	}
+
 	return fallback
 }
 
@@ -175,6 +180,7 @@ func serveStreamableHTTP(ctx context.Context, mcpServer *server.MCPServer, cfg t
 	if err != nil {
 		return err
 	}
+
 	return serveHTTPServer(ctx, httpServer, listener)
 }
 
@@ -202,6 +208,7 @@ func serveHTTPServer(ctx context.Context, httpServer *http.Server, listener net.
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
+
 		return err
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownTimeout)
@@ -212,6 +219,7 @@ func serveHTTPServer(ctx context.Context, httpServer *http.Server, listener net.
 		if err := <-serverErrors; err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
 		}
+
 		return nil
 	}
 }
@@ -227,11 +235,13 @@ func validateOrigin(allowedOrigins map[string]struct{}, next http.Handler) http.
 		originHeaders := r.Header.Values("Origin")
 		if len(originHeaders) == 0 {
 			next.ServeHTTP(w, r)
+
 			return
 		}
 		w.Header().Add("Vary", "Origin")
 		if len(originHeaders) != 1 {
 			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+
 			return
 		}
 
@@ -239,10 +249,12 @@ func validateOrigin(allowedOrigins map[string]struct{}, next http.Handler) http.
 		normalized, err := normalizeOrigin(origin)
 		if err != nil {
 			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+
 			return
 		}
 		if _, ok := allowedOrigins[normalized]; !ok {
 			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+
 			return
 		}
 
@@ -253,6 +265,7 @@ func validateOrigin(allowedOrigins map[string]struct{}, next http.Handler) http.
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Last-Event-ID, Mcp-Protocol-Version, Mcp-Session-Id")
 			w.Header().Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
+
 			return
 		}
 
@@ -271,6 +284,7 @@ func requireBearerToken(token string, next http.Handler) http.Handler {
 		if !ok || !strings.EqualFold(scheme, "Bearer") || subtle.ConstantTimeCompare(providedTokenHash[:], expectedTokenHash[:]) != 1 {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+
 			return
 		}
 		next.ServeHTTP(w, r)

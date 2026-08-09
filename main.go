@@ -81,19 +81,21 @@ func verifyMinifluxStartup(ctx context.Context, miniflux minifluxStartupClient) 
 		return errors.New("miniflux authentication failed")
 	}
 	log.Printf("Auth passed")
+
 	return nil
 }
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	transport, err := loadTransportConfig()
 	if err != nil {
+		stop()
 		log.Fatalf("Invalid transport configuration: %v", err)
 	}
 	enabledWrites, err := parseWriteTools(os.Getenv(writeToolsEnvironmentVariable))
 	if err != nil {
+		stop()
 		log.Fatalf("Invalid write-tool configuration: %v", err)
 	}
 	log.Printf("Starting miniflux-mcp version=%s revision=%s build_date=%s", Version, Revision, BuildDate)
@@ -102,6 +104,7 @@ func main() {
 	minifluxServer, err := NewMinifluxServer(startupCtx)
 	cancelStartup()
 	if err != nil {
+		stop()
 		log.Fatal(err)
 	}
 	mcpServer := server.NewMCPServer(
@@ -112,6 +115,8 @@ func main() {
 	minifluxServer.RegisterTools(mcpServer, enabledWrites)
 
 	if err := serveMCP(ctx, mcpServer, transport); err != nil {
+		stop()
 		log.Fatalf("Server failed: %v", err)
 	}
+	stop()
 }
