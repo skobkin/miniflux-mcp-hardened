@@ -148,34 +148,9 @@ For an already-running HTTP server:
 }
 ```
 
-### Run with Docker or Podman
+### Run with Docker
 
-Run the default STDIO transport:
-
-```bash
-docker run -i --rm \
-  --read-only \
-  --cap-drop=ALL \
-  --security-opt=no-new-privileges \
-  --env-file .env \
-  skobkin/miniflux-mcp-hardened:latest
-```
-
-Run Streamable HTTP behind an HTTPS reverse proxy:
-
-```bash
-docker run --rm \
-  --read-only \
-  --cap-drop=ALL \
-  --security-opt=no-new-privileges \
-  -p 127.0.0.1:8080:8080 \
-  --env-file .env \
-  -e MCP_TRANSPORT=streamable-http \
-  -e MCP_AUTH_TOKEN \
-  skobkin/miniflux-mcp-hardened:latest
-```
-
-Example Compose service:
+Example Compose service for Streamable HTTP behind an HTTPS reverse proxy:
 
 ```yaml
 services:
