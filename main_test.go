@@ -55,3 +55,10 @@ func TestVerifyMinifluxStartupHidesBackendErrors(t *testing.T) {
 		t.Fatalf("error = %v, want stable healthcheck failure", err)
 	}
 }
+
+func TestVerifyMinifluxStartupHidesAuthenticationErrors(t *testing.T) {
+	fake := &fakeStartupClient{authError: errors.New("backend secret")}
+	if err := verifyMinifluxStartup(context.Background(), fake); err == nil || err.Error() != "miniflux authentication failed" {
+		t.Fatalf("error = %v, want stable authentication failure", err)
+	}
+}
