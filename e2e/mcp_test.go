@@ -351,6 +351,7 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 		"MCP_HTTP_ADDR="+address,
 		"MCP_HTTP_PATH=/mcp",
 		"MCP_AUTH_TOKEN="+token,
+		"MCP_ALLOWED_ORIGINS=",
 		"MCP_WRITE_TOOLS=",
 	)
 	var stderr bytes.Buffer
@@ -405,6 +406,22 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 	_ = unauthorizedResponse.Body.Close()
 	if unauthorizedResponse.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthorized request returned HTTP %d, want 401", unauthorizedResponse.StatusCode)
+	}
+
+	badOriginRequest, err := http.NewRequest(http.MethodPost, baseURL+"/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
+	if err != nil {
+		t.Fatalf("create bad-origin request: %v", err)
+	}
+	badOriginRequest.Header.Set("Content-Type", "application/json")
+	badOriginRequest.Header.Set("Authorization", "Bearer "+token)
+	badOriginRequest.Header.Set("Origin", "https://evil.example")
+	badOriginResponse, err := httpClient.Do(badOriginRequest)
+	if err != nil {
+		t.Fatalf("send bad-origin request: %v", err)
+	}
+	_ = badOriginResponse.Body.Close()
+	if badOriginResponse.StatusCode != http.StatusForbidden {
+		t.Fatalf("bad-origin request returned HTTP %d, want 403", badOriginResponse.StatusCode)
 	}
 
 	client := &httpRPCClient{

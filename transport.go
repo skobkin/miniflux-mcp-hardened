@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -20,10 +21,11 @@ const (
 )
 
 type transportConfig struct {
-	Transport string
-	HTTPAddr  string
-	HTTPPath  string
-	AuthToken string
+	Transport      string
+	HTTPAddr       string
+	HTTPPath       string
+	AuthToken      string
+	AllowedOrigins map[string]struct{}
 }
 
 func loadTransportConfig() (transportConfig, error) {
@@ -47,10 +49,35 @@ func loadTransportConfig() (transportConfig, error) {
 		if cfg.HTTPPath == "/healthz" {
 			return transportConfig{}, fmt.Errorf("MCP_HTTP_PATH cannot be /healthz")
 		}
+		allowedOrigins, err := parseAllowedOrigins(os.Getenv("MCP_ALLOWED_ORIGINS"))
+		if err != nil {
+			return transportConfig{}, err
+		}
+		cfg.AllowedOrigins = allowedOrigins
 		return cfg, nil
 	default:
 		return transportConfig{}, fmt.Errorf("unsupported MCP_TRANSPORT %q (supported: %s, %s)", cfg.Transport, transportStdio, transportStreamableHTTP)
 	}
+}
+
+func parseAllowedOrigins(value string) (map[string]struct{}, error) {
+	allowed := make(map[string]struct{})
+	if strings.TrimSpace(value) == "" {
+		return allowed, nil
+	}
+
+	for _, configuredOrigin := range strings.Split(value, ",") {
+		origin := strings.TrimSpace(configuredOrigin)
+		if origin == "" {
+			return nil, fmt.Errorf("MCP_ALLOWED_ORIGINS contains an empty origin")
+		}
+		parsed, err := url.Parse(origin)
+		if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return nil, fmt.Errorf("MCP_ALLOWED_ORIGINS contains invalid origin %q; expected http(s)://host[:port]", origin)
+		}
+		allowed[origin] = struct{}{}
+	}
+	return allowed, nil
 }
 
 func envOrDefault(name, fallback string) string {
@@ -78,12 +105,8 @@ func serveStreamableHTTP(mcpServer *server.MCPServer, cfg transportConfig) error
 	)
 
 	mux := http.NewServeMux()
-	mux.Handle(cfg.HTTPPath, requireBearerToken(cfg.AuthToken, mcpHandler))
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok\n"))
-	})
+	mux.Handle(cfg.HTTPPath, validateOrigin(cfg.AllowedOrigins, requireBearerToken(cfg.AuthToken, mcpHandler)))
+	mux.HandleFunc("/healthz", healthcheckHTTP)
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -92,6 +115,45 @@ func serveStreamableHTTP(mcpServer *server.MCPServer, cfg transportConfig) error
 		IdleTimeout:       2 * time.Minute,
 	}
 	return httpServer.ListenAndServe()
+}
+
+func healthcheckHTTP(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
+}
+
+func validateOrigin(allowedOrigins map[string]struct{}, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		originHeaders := r.Header.Values("Origin")
+		if len(originHeaders) == 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if len(originHeaders) != 1 {
+			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+			return
+		}
+
+		origin := originHeaders[0]
+		if _, ok := allowedOrigins[origin]; !ok {
+			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+			return
+		}
+
+		w.Header().Add("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Last-Event-ID, Mcp-Protocol-Version, Mcp-Session-Id")
+			w.Header().Set("Access-Control-Max-Age", "600")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func requireBearerToken(token string, next http.Handler) http.Handler {
