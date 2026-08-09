@@ -1,54 +1,103 @@
-# Miniflux MCP Server
+# Miniflux MCP Hardened
 
-A Model Context Protocol (MCP) server for interacting with Miniflux RSS reader. This server provides tools to manage feeds, entries, users, and categories through the MCP protocol using [Miniflux Client](https://github.com/miniflux/v2/tree/main/client).
+A deliberately small, security-focused Model Context Protocol server for reading a Miniflux account with an LLM agent.
 
-## Features
+This fork is read-only by default. It exposes sanitized, purpose-built responses rather than raw Miniflux API objects, and it does not aim for Miniflux API completeness.
 
-- **Feed Management**: List, create, and refresh RSS/Atom feeds
-- **Entry Operations**: Read entries, update status (read/unread/removed)
-- **Category Management**: List and organize feed categories
-- **Flexible Authentication**: Support for both API key and username/password authentication
+## Security model
 
-## Setup
+- The default MCP surface contains only read tools.
+- Three ordinary reading-workflow mutations can be enabled individually with an explicit allowlist.
+- User administration, API-key management, broad mutations, feed/category management, and credential-management schemas are not exposed.
+- Feed responses omit subscription URLs and fetch configuration, including usernames, passwords, cookies, proxy URLs, and integration endpoints.
+- Entry responses contain only a sanitized nested feed identity. Entry lists omit article bodies; single-entry tools include article content.
+- Titles, descriptions, article content, links, and tags originate outside this server and must be treated as untrusted data, never as MCP instructions.
+- Streamable HTTP requires a Bearer token. Browser origins are denied unless explicitly allowlisted.
 
-### Getting a Miniflux API Key
+One server process uses one configured Miniflux identity. Miniflux permissions still apply behind the narrower MCP policy, so use a dedicated non-administrator account where practical.
 
-1. Log into your Miniflux instance
-2. Go to Settings → API Keys
-3. Create a new API key
-4. Copy the generated key to your configuration
+## Configuration
 
-### Miniflux Environment Variables
+### Miniflux connection
 
 | Variable | Description | Required |
-|----------|-------------|----------|
-| `MINIFLUX_URL` | Your Miniflux instance URL | Yes |
-| `MINIFLUX_API_KEY` | API key for authentication | Yes* |
-| `MINIFLUX_USERNAME` | Username for basic auth | Yes* |
-| `MINIFLUX_PASSWORD` | Password for basic auth | Yes* |
+| --- | --- | --- |
+| `MINIFLUX_URL` | Miniflux base URL | Yes |
+| `MINIFLUX_API_KEY` | API key used by this server | Yes, unless username/password are used |
+| `MINIFLUX_USERNAME` | Miniflux username | With `MINIFLUX_PASSWORD` when no API key is set |
+| `MINIFLUX_PASSWORD` | Miniflux password | With `MINIFLUX_USERNAME` when no API key is set |
+| `MCP_WRITE_TOOLS` | Comma-separated allowlist of supported write tools | No; empty means read-only |
 
-*Either use `MINIFLUX_API_KEY` OR both `MINIFLUX_USERNAME` and `MINIFLUX_PASSWORD`
+If both authentication forms are present, the API key is used. Credentials configure the server itself and are never accepted as MCP tool arguments.
 
-## Local stdio Server
+### Optional write tools
+
+Only these values are accepted in `MCP_WRITE_TOOLS`:
+
+- `update_entry_status` marks one explicitly selected entry `read` or `unread`.
+- `toggle_starred` toggles one explicitly selected entry's starred state.
+- `refresh_feed` asks Miniflux to refresh one explicitly selected feed.
+
+For example:
+
+```text
+MCP_WRITE_TOOLS=update_entry_status,toggle_starred,refresh_feed
+```
+
+Names are case-sensitive. Unknown, removed, or empty list elements cause startup to fail instead of being ignored. Disabled tools are omitted from MCP registration entirely.
+
+## Tool surface
+
+The following 13 tools are always available:
+
+### Feeds and categories
+
+- `get_feeds`
+- `get_feed`
+- `get_feed_entries`
+- `get_feed_entry`
+- `get_categories`
+- `get_category_feeds`
+- `get_category_entries`
+- `get_category_entry`
+
+### Entries and diagnostics
+
+- `get_entries`
+- `get_entry`
+- `get_version`
+- `healthcheck`
+- `fetch_counters`
+
+Entry collection tools default to 50 results and reject limits above 100. IDs must be positive integers and offsets must be non-negative.
+
+### Sanitized responses
+
+- Categories expose identity, visibility, and available feed/unread counts.
+- Feeds expose identity, public site metadata, language, check timestamps, disabled state, parsing-error count, and a sanitized category.
+- Entry lists expose article metadata, status, tags, and sanitized feed identity without article content.
+- Single-entry tools additionally expose article content, comments URL, and creation timestamp.
+- Version and counter tools return compact purpose-specific objects.
+
+Subscription `feed_url`, Miniflux user IDs, credentials, cookies, fetch/proxy settings, integration URLs, share codes, internal hashes, icons, and enclosures are intentionally absent.
+
+## Local stdio server
 
 `stdio` is the default transport and is intended for an MCP client that starts the server locally.
 
-### Using Docker
+Build and run with Docker or Podman:
 
 ```bash
-docker build -t miniflux-mcp .
-docker run -i --rm --env-file .env miniflux-mcp
+docker build -t miniflux-mcp-hardened .
+docker run -i --rm \
+  --read-only \
+  --cap-drop=ALL \
+  --security-opt=no-new-privileges \
+  --env-file .env \
+  miniflux-mcp-hardened
 ```
 
-Or use the published image:
-
-```bash
-docker run -i --rm --env-file .env jwonder/miniflux-mcp:latest
-```
-
-### Claude Code (`.mcp.json`)
-
-Add the following `.mcp.json` file to your project root:
+Example `.mcp.json`:
 
 ```json
 {
@@ -60,11 +109,14 @@ Add the following `.mcp.json` file to your project root:
         "run",
         "-i",
         "--rm",
+        "--read-only",
+        "--cap-drop=ALL",
+        "--security-opt=no-new-privileges",
         "-e",
         "MINIFLUX_URL",
         "-e",
         "MINIFLUX_API_KEY",
-        "jwonder/miniflux-mcp:latest"
+        "miniflux-mcp-hardened"
       ],
       "env": {
         "MINIFLUX_URL": "${MINIFLUX_URL}",
@@ -75,125 +127,87 @@ Add the following `.mcp.json` file to your project root:
 }
 ```
 
-## Remote Streamable HTTP Server
-
-The remote server exposes a Streamable HTTP MCP endpoint protected by a static Bearer token.
+## Remote Streamable HTTP server
 
 | Variable | Description | Default |
-|----------|-------------|---------|
+| --- | --- | --- |
 | `MCP_TRANSPORT` | Set to `streamable-http` | `stdio` |
-| `MCP_HTTP_ADDR` | HTTP listen address | `:8080` |
+| `MCP_HTTP_ADDR` | Listen address | `:8080` |
 | `MCP_HTTP_PATH` | MCP endpoint path | `/mcp` |
-| `MCP_AUTH_TOKEN` | Bearer token protecting the MCP endpoint; required in HTTP mode | None |
+| `MCP_AUTH_TOKEN` | Bearer token protecting the MCP endpoint | Required in HTTP mode |
+| `MCP_ALLOWED_ORIGINS` | Comma-separated exact browser origins such as `https://client.example` | Empty; reject all requests carrying `Origin` |
 
-Set a strong token and start the container with the Streamable HTTP transport:
+Requests without `Origin`, including ordinary non-browser MCP clients, remain usable. Configured origins must be exact `http://host[:port]` or `https://host[:port]` values without paths, credentials, queries, or fragments. There is no wildcard mode.
+
+Start an HTTP server behind an HTTPS reverse proxy:
 
 ```bash
-export MCP_AUTH_TOKEN='replace-with-a-strong-secret'
-
 docker run --rm \
-  -p 8080:8080 \
+  --read-only \
+  --cap-drop=ALL \
+  --security-opt=no-new-privileges \
+  -p 127.0.0.1:8080:8080 \
   --env-file .env \
   -e MCP_TRANSPORT=streamable-http \
   -e MCP_AUTH_TOKEN \
-  jwonder/miniflux-mcp:latest
+  miniflux-mcp-hardened
 ```
 
-Configure an MCP client to connect to `http://your-server:8080/mcp` and send:
+Clients send the configured secret as `Authorization: Bearer <token>`. `/healthz` is intentionally unauthenticated and returns only `ok`.
 
-```http
-Authorization: Bearer replace-with-a-strong-secret
+Example Compose service:
+
+```yaml
+services:
+  miniflux-mcp:
+    build: .
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      MINIFLUX_URL: ${MINIFLUX_URL}
+      MINIFLUX_API_KEY: ${MINIFLUX_API_KEY}
+      MCP_TRANSPORT: streamable-http
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN}
+      MCP_WRITE_TOOLS: ${MCP_WRITE_TOOLS:-}
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
 ```
 
-### Claude Code (`.mcp.json`)
+Terminate TLS at a reverse proxy whenever traffic leaves a trusted private network; otherwise the Bearer token and returned feed data are not encrypted in transit.
 
-Add the remote server to your project-level `.mcp.json`:
+## Deliberate differences from upstream
 
-```json
-{
-  "mcpServers": {
-    "miniflux": {
-      "type": "http",
-      "url": "https://mcp.example.com/mcp",
-      "headers": {
-        "Authorization": "Bearer ${MCP_AUTH_TOKEN}"
-      }
-    }
-  }
-}
+The upstream-oriented implementation exposed broad Miniflux API coverage. This fork removes the following MCP tools rather than merely disabling them by documentation:
+
+- Feed management and bulk operations: `create_feed`, `update_feed`, `delete_feed`, `refresh_all_feeds`, `get_feed_icon`, `mark_feed_as_read`.
+- Entry operations outside the selected workflow: `save_entry`, `fetch_original_content`, `mark_all_as_read`.
+- Category mutations: `create_category`, `update_category`, `delete_category`, `mark_category_as_read`, `refresh_category`.
+- User administration: `get_users`, `get_me`, `get_user_by_id`, `get_user_by_username`, `create_user`, `delete_user`.
+- Network/export/administrative utilities: `discover`, `export`, `flush_history`.
+- API-key management: `get_api_keys`, `create_api_key`, `delete_api_key`.
+- Raw media lookups: `get_icon`, `get_enclosure`.
+
+The retained `update_entry_status` tool no longer accepts `removed`; only `read` and `unread` are supported. Feed create/update schemas and all credential-bearing arguments are absent. These are intentional security boundaries, not missing API-completeness work.
+
+## Development
+
+The local completion checks are:
+
+```bash
+go fmt ./...
+go vet ./...
+go test ./...
+golangci-lint run ./...
+go build ./...
 ```
 
-The unauthenticated health endpoint is available at `/healthz`. For deployment outside a trusted private network, put the server behind an HTTPS reverse proxy so the Bearer token is encrypted in transit. One server process uses one configured Miniflux identity, so every connected MCP client has that identity's permissions.
-
-## Available Tools
-
-The Miniflux MCP Server provides **40+ tools** covering all Miniflux API functionality, which can be found in the [Miniflux API Reference](https://miniflux.app/docs/api.html#go-client).
-
-### Feed Management (11 tools)
-- `get_feeds` - Get all RSS/Atom feeds
-- `get_feed` - Get a specific feed by ID
-- `create_feed` - Add a new RSS/Atom feed
-- `update_feed` - Update an existing feed
-- `delete_feed` - Delete a specific feed
-- `refresh_feed` - Manually refresh a specific feed
-- `refresh_all_feeds` - Refresh all feeds
-- `get_feed_entries` - Get entries from a specific feed
-- `get_feed_entry` - Get a specific entry from a feed
-- `get_feed_icon` - Get the icon of a specific feed
-- `mark_feed_as_read` - Mark all entries in a feed as read
-
-### Entry Management (8 tools)
-- `get_entries` - Get entries with optional filtering
-- `get_entry` - Get a specific entry by ID
-- `update_entry_status` - Update entry status (read/unread/removed)
-- `toggle_starred` - Toggle starred status of an entry
-- `save_entry` - Save an entry
-- `fetch_original_content` - Fetch original content of an entry
-- `mark_all_as_read` - Mark all entries as read for a user
-- `get_category_entry` - Get a specific entry from a category
-
-### Category Management (8 tools)
-- `get_categories` - Get all feed categories
-- `create_category` - Create a new category
-- `update_category` - Update a category title
-- `delete_category` - Delete a category
-- `get_category_feeds` - Get all feeds in a specific category
-- `get_category_entries` - Get all entries in a specific category
-- `mark_category_as_read` - Mark all entries in a category as read
-- `refresh_category` - Refresh all feeds in a category
-
-### User Management (6 tools)
-- `get_users` - Get all users
-- `get_me` - Get current user information
-- `get_user_by_id` - Get a specific user by ID
-- `get_user_by_username` - Get a specific user by username
-- `create_user` - Create a new user
-- `delete_user` - Delete a user
-
-### System & Utility (7 tools)
-- `get_version` - Get Miniflux version information
-- `healthcheck` - Perform a health check
-- `fetch_counters` - Fetch feed counters
-- `discover` - Discover feeds from a URL
-- `export` - Export feeds as OPML
-- `flush_history` - Flush the read history
-
-### API Key Management (3 tools)
-- `get_api_keys` - Get all API keys
-- `create_api_key` - Create a new API key
-- `delete_api_key` - Delete an API key
-
-### Icons & Media (2 tools)
-- `get_icon` - Get an icon by ID
-- `get_enclosure` - Get an enclosure by ID
+Tests use local fakes and `httptest`; a running Miniflux/PostgreSQL stack is not required for unit validation.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For issues and questions:
-1. Check the Miniflux documentation: https://miniflux.app/docs/
-2. Review the MCP specification: https://spec.modelcontextprotocol.io/
-3. Open an issue in this repository
+This project is licensed under the MIT License. See `LICENSE` for details.
