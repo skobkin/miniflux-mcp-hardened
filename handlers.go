@@ -422,7 +422,7 @@ func (s *MinifluxServer) ToggleStarred(ctx context.Context, request mcp.CallTool
 
 func (s *MinifluxServer) GetVersion(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	version, err := s.client.VersionContext(ctx)
-	if err != nil {
+	if err != nil || version == nil {
 		return mcp.NewToolResultError("failed to fetch version"), nil
 	}
 	return marshalToolResult(MCPVersion{Version: version.Version})
@@ -437,7 +437,7 @@ func (s *MinifluxServer) Healthcheck(ctx context.Context, _ mcp.CallToolRequest)
 
 func (s *MinifluxServer) FetchCounters(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	counters, err := s.client.FetchCountersContext(ctx)
-	if err != nil {
+	if err != nil || counters == nil {
 		return mcp.NewToolResultError("failed to fetch counters"), nil
 	}
 	return marshalToolResult(MCPFeedCounters{

@@ -22,6 +22,8 @@ type fakeMinifluxClient struct {
 	entry       *client.Entry
 	feedsError  error
 	entryError  error
+	nilVersion  bool
+	nilCounters bool
 	lastContext context.Context
 }
 
@@ -32,6 +34,9 @@ func (f *fakeMinifluxClient) HealthcheckContext(ctx context.Context) error {
 
 func (f *fakeMinifluxClient) VersionContext(ctx context.Context) (*client.VersionResponse, error) {
 	f.lastContext = ctx
+	if f.nilVersion {
+		return nil, nil
+	}
 	return &client.VersionResponse{Version: "test"}, nil
 }
 
@@ -105,6 +110,9 @@ func (f *fakeMinifluxClient) ToggleStarredContext(ctx context.Context, _ int64) 
 
 func (f *fakeMinifluxClient) FetchCountersContext(ctx context.Context) (*client.FeedCounters, error) {
 	f.lastContext = ctx
+	if f.nilCounters {
+		return nil, nil
+	}
 	return &client.FeedCounters{}, nil
 }
 
@@ -249,6 +257,41 @@ func TestBackendErrorsDoNotCrossMCPBoundary(t *testing.T) {
 	}
 	if text := resultText(t, result); strings.Contains(text, sentinelSecret) {
 		t.Fatalf("tool error leaked backend detail: %s", text)
+	}
+}
+
+func TestNilBackendResponsesReturnToolErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		server *MinifluxServer
+		call   func(*MinifluxServer) (*mcp.CallToolResult, error)
+	}{
+		{
+			name:   "version",
+			server: &MinifluxServer{client: &fakeMinifluxClient{nilVersion: true}},
+			call: func(server *MinifluxServer) (*mcp.CallToolResult, error) {
+				return server.GetVersion(context.Background(), mcp.CallToolRequest{})
+			},
+		},
+		{
+			name:   "counters",
+			server: &MinifluxServer{client: &fakeMinifluxClient{nilCounters: true}},
+			call: func(server *MinifluxServer) (*mcp.CallToolResult, error) {
+				return server.FetchCounters(context.Background(), mcp.CallToolRequest{})
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := test.call(test.server)
+			if err != nil {
+				t.Fatalf("handler returned error: %v", err)
+			}
+			if result == nil || !result.IsError {
+				t.Fatalf("result = %#v, want tool error", result)
+			}
+		})
 	}
 }
 
