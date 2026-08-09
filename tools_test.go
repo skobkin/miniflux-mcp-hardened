@@ -134,6 +134,33 @@ func TestRegisteredSchemasDoNotAcceptSecrets(t *testing.T) {
 	}
 }
 
+func TestEntryLimitSchemasMatchRuntimePolicy(t *testing.T) {
+	listTools := map[string]struct{}{
+		"get_entries":          {},
+		"get_feed_entries":     {},
+		"get_category_entries": {},
+	}
+	for _, definition := range (&MinifluxServer{}).readToolDefinitions() {
+		if _, ok := listTools[definition.Tool.Name]; !ok {
+			continue
+		}
+		limit, ok := definition.Tool.InputSchema.Properties["limit"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("tool %q has no limit schema", definition.Tool.Name)
+		}
+		if limit["default"] != defaultEntryLimit {
+			t.Errorf("tool %q limit default = %v, want %d", definition.Tool.Name, limit["default"], defaultEntryLimit)
+		}
+		if limit["maximum"] != maximumEntryLimit {
+			t.Errorf("tool %q limit maximum = %v, want %d", definition.Tool.Name, limit["maximum"], maximumEntryLimit)
+		}
+		delete(listTools, definition.Tool.Name)
+	}
+	if len(listTools) != 0 {
+		t.Fatalf("list tools missing from definitions: %v", listTools)
+	}
+}
+
 func toolNames(definitions []ToolDefinition) []string {
 	result := make([]string, 0, len(definitions))
 	for _, definition := range definitions {

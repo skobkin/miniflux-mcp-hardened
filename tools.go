@@ -30,6 +30,16 @@ func idProperty(description string) map[string]interface{} {
 	}
 }
 
+func entryLimitProperty() map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "integer",
+		"minimum":     1,
+		"maximum":     maximumEntryLimit,
+		"default":     defaultEntryLimit,
+		"description": "Maximum entries to return",
+	}
+}
+
 func entryFilterProperties() map[string]interface{} {
 	return map[string]interface{}{
 		"status": map[string]interface{}{
@@ -47,7 +57,7 @@ func entryFilterProperties() map[string]interface{} {
 		},
 		"feed_id":          idProperty("Filter by feed ID"),
 		"category_id":      idProperty("Filter by category ID"),
-		"limit":            map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 100, "default": 50, "description": "Maximum entries to return"},
+		"limit":            entryLimitProperty(),
 		"offset":           map[string]interface{}{"type": "integer", "minimum": 0, "description": "Pagination offset"},
 		"published_after":  map[string]interface{}{"type": "integer", "minimum": 1, "description": "Return entries published after this Unix timestamp"},
 		"published_before": map[string]interface{}{"type": "integer", "minimum": 1, "description": "Return entries published before this Unix timestamp"},
@@ -79,7 +89,7 @@ func scopedEntryProperties(scopeName string) map[string]interface{} {
 			"description": "Filter by entry status",
 			"enum":        []string{"read", "unread", "removed"},
 		},
-		"limit":  map[string]interface{}{"type": "integer", "minimum": 1, "maximum": 100, "default": 50, "description": "Maximum entries to return"},
+		"limit":  entryLimitProperty(),
 		"offset": map[string]interface{}{"type": "integer", "minimum": 0, "description": "Pagination offset"},
 	}
 	return properties
