@@ -1,6 +1,6 @@
 version: 2
 
-project_name: miniflux-mcp-hardened
+project_name: miniflux-mcp
 
 gitea_urls:
   api: "{{ .Env.FORGE_API_URL }}"
