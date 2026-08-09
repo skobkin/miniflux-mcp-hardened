@@ -1,4 +1,4 @@
-# Miniflux MCP Hardened
+# Miniflux MCP Hardened [![ci](https://ci.skobk.in/api/badges/19/status.svg)](https://ci.skobk.in/repos/19)
 
 A deliberately small, security-focused Model Context Protocol server for reading a Miniflux account with an LLM agent.
 
