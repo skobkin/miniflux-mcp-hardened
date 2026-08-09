@@ -122,6 +122,9 @@ func nonZeroTime(value time.Time) *time.Time {
 func toMCPFeeds(feeds client.Feeds) []*MCPFeed {
 	result := make([]*MCPFeed, 0, len(feeds))
 	for _, feed := range feeds {
+		if feed == nil {
+			continue
+		}
 		result = append(result, toMCPFeed(feed))
 	}
 	return result
@@ -179,6 +182,9 @@ func toMCPEntryResultSet(entries *client.EntryResultSet) *MCPEntryResultSet {
 		Entries: make([]MCPEntrySummary, 0, len(entries.Entries)),
 	}
 	for _, entry := range entries.Entries {
+		if entry == nil {
+			continue
+		}
 		result.Entries = append(result.Entries, toMCPEntrySummary(entry))
 	}
 	return result
@@ -187,6 +193,9 @@ func toMCPEntryResultSet(entries *client.EntryResultSet) *MCPEntryResultSet {
 func toMCPCategories(categories client.Categories) []*MCPCategory {
 	result := make([]*MCPCategory, 0, len(categories))
 	for _, category := range categories {
+		if category == nil {
+			continue
+		}
 		result = append(result, toMCPCategory(category))
 	}
 	return result

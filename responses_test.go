@@ -316,6 +316,29 @@ func TestFetchCountersUsesEmptyObjects(t *testing.T) {
 	}
 }
 
+func TestCollectionConvertersSkipNilItems(t *testing.T) {
+	feeds := toMCPFeeds(client.Feeds{nil, {ID: 42, Title: "Feed"}})
+	if len(feeds) != 1 || feeds[0].ID != 42 {
+		t.Fatalf("converted feeds = %#v, want one non-nil feed", feeds)
+	}
+
+	categories := toMCPCategories(client.Categories{nil, {ID: 7, Title: "Category"}})
+	if len(categories) != 1 || categories[0].ID != 7 {
+		t.Fatalf("converted categories = %#v, want one non-nil category", categories)
+	}
+
+	entries := toMCPEntryResultSet(&client.EntryResultSet{
+		Total:   2,
+		Entries: client.Entries{nil, {ID: 1, Title: "Entry"}},
+	})
+	if entries.Total != 2 {
+		t.Errorf("converted total = %d, want backend total 2", entries.Total)
+	}
+	if len(entries.Entries) != 1 || entries.Entries[0].ID != 1 {
+		t.Fatalf("converted entries = %#v, want one non-nil entry", entries.Entries)
+	}
+}
+
 func secretEntry() *client.Entry {
 	return &client.Entry{
 		ID:        1,
