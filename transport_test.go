@@ -18,7 +18,7 @@ func TestParseAllowedOrigins(t *testing.T) {
 		wantError bool
 	}{
 		{name: "empty", value: "", expected: map[string]struct{}{}},
-		{name: "multiple", value: "HTTPS://ONE.EXAMPLE:443, http://LOCALHOST:3000", expected: map[string]struct{}{
+		{name: "multiple", value: "HTTPS://ONE.EXAMPLE:0443, http://LOCALHOST:03000", expected: map[string]struct{}{
 			"https://one.example":   {},
 			"http://localhost:3000": {},
 		}},
@@ -31,6 +31,7 @@ func TestParseAllowedOrigins(t *testing.T) {
 		{name: "query", value: "https://example.com?token=value", wantError: true},
 		{name: "empty query", value: "https://example.com?", wantError: true},
 		{name: "empty fragment", value: "https://example.com#", wantError: true},
+		{name: "out of range port", value: "https://example.com:65536", wantError: true},
 	}
 
 	for _, test := range tests {

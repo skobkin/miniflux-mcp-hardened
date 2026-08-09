@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -120,6 +121,13 @@ func normalizeOrigin(origin string) (string, error) {
 		return "", fmt.Errorf("invalid origin")
 	}
 	port := parsed.Port()
+	if port != "" {
+		portNumber, err := strconv.Atoi(port)
+		if err != nil || portNumber < 1 || portNumber > 65535 {
+			return "", fmt.Errorf("invalid origin")
+		}
+		port = strconv.Itoa(portNumber)
+	}
 	if scheme == "http" && port == "80" || scheme == "https" && port == "443" {
 		port = ""
 	}
