@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/mark3labs/mcp-go/server"
 	"miniflux.app/v2/client"
@@ -14,6 +16,8 @@ import (
 type MinifluxServer struct {
 	client minifluxClient
 }
+
+const minifluxStartupTimeout = 15 * time.Second
 
 type minifluxClient interface {
 	HealthcheckContext(context.Context) error
@@ -34,17 +38,22 @@ type minifluxClient interface {
 	FetchCountersContext(context.Context) (*client.FeedCounters, error)
 }
 
-func NewMinifluxServer() *MinifluxServer {
+type minifluxStartupClient interface {
+	HealthcheckContext(context.Context) error
+	MeContext(context.Context) (*client.User, error)
+}
+
+func NewMinifluxServer(ctx context.Context) (*MinifluxServer, error) {
 	baseURL := os.Getenv("MINIFLUX_URL")
 	if baseURL == "" {
-		log.Fatal("MINIFLUX_URL environment variable is required")
+		return nil, errors.New("MINIFLUX_URL environment variable is required")
 	}
 
 	apiKey := os.Getenv("MINIFLUX_API_KEY")
 	username := os.Getenv("MINIFLUX_USERNAME")
 	password := os.Getenv("MINIFLUX_PASSWORD")
 	if apiKey == "" && (username == "" || password == "") {
-		log.Fatal("Either MINIFLUX_API_KEY or both MINIFLUX_USERNAME and MINIFLUX_PASSWORD must be set")
+		return nil, errors.New("either MINIFLUX_API_KEY or both MINIFLUX_USERNAME and MINIFLUX_PASSWORD must be set")
 	}
 
 	var minifluxClient *client.Client
@@ -54,17 +63,25 @@ func NewMinifluxServer() *MinifluxServer {
 		minifluxClient = client.NewClient(baseURL, username, password)
 	}
 
-	if err := minifluxClient.Healthcheck(); err != nil {
-		log.Fatalf("Healthcheck failed: %v", err)
+	if err := verifyMinifluxStartup(ctx, minifluxClient); err != nil {
+		return nil, err
+	}
+
+	return &MinifluxServer{client: minifluxClient}, nil
+}
+
+func verifyMinifluxStartup(ctx context.Context, miniflux minifluxStartupClient) error {
+	if err := miniflux.HealthcheckContext(ctx); err != nil {
+		return errors.New("miniflux healthcheck failed")
 	}
 	log.Printf("Healthcheck passed")
 
-	if _, err := minifluxClient.Me(); err != nil {
-		log.Fatalf("Auth failed: %v", err)
+	user, err := miniflux.MeContext(ctx)
+	if err != nil || user == nil {
+		return errors.New("miniflux authentication failed")
 	}
 	log.Printf("Auth passed")
-
-	return &MinifluxServer{client: minifluxClient}
+	return nil
 }
 
 func main() {
@@ -81,7 +98,12 @@ func main() {
 	}
 	log.Printf("Starting miniflux-mcp version=%s revision=%s build_date=%s", Version, Revision, BuildDate)
 
-	minifluxServer := NewMinifluxServer()
+	startupCtx, cancelStartup := context.WithTimeout(ctx, minifluxStartupTimeout)
+	minifluxServer, err := NewMinifluxServer(startupCtx)
+	cancelStartup()
+	if err != nil {
+		log.Fatal(err)
+	}
 	mcpServer := server.NewMCPServer(
 		"miniflux-mcp",
 		Version,
