@@ -441,8 +441,5 @@ func (s *MinifluxServer) FetchCounters(ctx context.Context, _ mcp.CallToolReques
 	if err != nil || counters == nil {
 		return mcp.NewToolResultError("failed to fetch counters"), nil
 	}
-	return marshalToolResult(MCPFeedCounters{
-		ReadCounters:   counters.ReadCounters,
-		UnreadCounters: counters.UnreadCounters,
-	})
+	return marshalToolResult(toMCPFeedCounters(counters))
 }

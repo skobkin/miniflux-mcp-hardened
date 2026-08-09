@@ -295,6 +295,27 @@ func TestNilBackendResponsesReturnToolErrors(t *testing.T) {
 	}
 }
 
+func TestFetchCountersUsesEmptyObjects(t *testing.T) {
+	result, err := (&MinifluxServer{client: &fakeMinifluxClient{}}).FetchCounters(context.Background(), mcp.CallToolRequest{})
+	if err != nil {
+		t.Fatalf("FetchCounters returned error: %v", err)
+	}
+	text := resultText(t, result)
+	if strings.Contains(text, "null") {
+		t.Fatalf("serialized counters contained null: %s", text)
+	}
+
+	var counters map[string]map[string]int
+	if err := json.Unmarshal([]byte(text), &counters); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	for _, field := range []string{"reads", "unreads"} {
+		if counters[field] == nil {
+			t.Errorf("serialized counters omitted empty object %q: %s", field, text)
+		}
+	}
+}
+
 func secretEntry() *client.Entry {
 	return &client.Entry{
 		ID:        1,

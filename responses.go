@@ -191,3 +191,21 @@ func toMCPCategories(categories client.Categories) []*MCPCategory {
 	}
 	return result
 }
+
+func toMCPFeedCounters(counters *client.FeedCounters) *MCPFeedCounters {
+	if counters == nil {
+		return nil
+	}
+	reads := counters.ReadCounters
+	if reads == nil {
+		reads = map[int64]int{}
+	}
+	unreads := counters.UnreadCounters
+	if unreads == nil {
+		unreads = map[int64]int{}
+	}
+	return &MCPFeedCounters{
+		ReadCounters:   reads,
+		UnreadCounters: unreads,
+	}
+}
