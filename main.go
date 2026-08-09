@@ -70,6 +70,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("Invalid transport configuration: %v", err)
 	}
+	enabledWrites, err := parseWriteTools(os.Getenv(writeToolsEnvironmentVariable))
+	if err != nil {
+		log.Fatalf("Invalid write-tool configuration: %v", err)
+	}
 	log.Printf("Starting miniflux-mcp version=%s revision=%s build_date=%s", Version, Revision, BuildDate)
 
 	minifluxServer := NewMinifluxServer()
@@ -78,7 +82,7 @@ func main() {
 		Version,
 		server.WithLogging(),
 	)
-	minifluxServer.RegisterAllTools(mcpServer)
+	minifluxServer.RegisterTools(mcpServer, enabledWrites)
 
 	if err := serveMCP(mcpServer, transport); err != nil {
 		log.Fatalf("Server failed: %v", err)

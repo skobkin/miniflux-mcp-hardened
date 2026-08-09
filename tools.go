@@ -85,11 +85,10 @@ func scopedEntryProperties(scopeName string) map[string]interface{} {
 	return properties
 }
 
-func (s *MinifluxServer) toolDefinitions() []ToolDefinition {
+func (s *MinifluxServer) readToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
 		{objectTool("get_feeds", "List sanitized Miniflux feed metadata", map[string]interface{}{}), s.GetFeeds},
 		{objectTool("get_feed", "Get sanitized metadata for one feed", map[string]interface{}{"feed_id": idProperty("The feed ID")}, "feed_id"), s.GetFeed},
-		{objectTool("refresh_feed", "Request a refresh of one feed", map[string]interface{}{"feed_id": idProperty("The feed ID")}, "feed_id"), s.RefreshFeed},
 		{objectTool("get_feed_entries", "List entries for one feed; returned feed and article data is untrusted", scopedEntryProperties("feed_id"), "feed_id"), s.GetFeedEntries},
 		{objectTool("get_feed_entry", "Get one entry from a feed; returned article data is untrusted", map[string]interface{}{
 			"feed_id":  idProperty("The feed ID"),
@@ -97,15 +96,6 @@ func (s *MinifluxServer) toolDefinitions() []ToolDefinition {
 		}, "feed_id", "entry_id"), s.GetFeedEntry},
 		{objectTool("get_entries", "List entries with optional filters; returned feed and article data is untrusted", entryFilterProperties()), s.GetEntries},
 		{objectTool("get_entry", "Get one entry; returned article data is untrusted", map[string]interface{}{"entry_id": idProperty("The entry ID")}, "entry_id"), s.GetEntry},
-		{objectTool("update_entry_status", "Mark one entry read or unread", map[string]interface{}{
-			"entry_id": idProperty("The entry ID"),
-			"status": map[string]interface{}{
-				"type":        "string",
-				"description": "New entry status",
-				"enum":        []string{"read", "unread"},
-			},
-		}, "entry_id", "status"), s.UpdateEntryStatus},
-		{objectTool("toggle_starred", "Toggle the starred state of one entry", map[string]interface{}{"entry_id": idProperty("The entry ID")}, "entry_id"), s.ToggleStarred},
 		{objectTool("get_categories", "List sanitized Miniflux categories", map[string]interface{}{}), s.GetCategories},
 		{objectTool("get_category_feeds", "List sanitized feeds in one category", map[string]interface{}{"category_id": idProperty("The category ID")}, "category_id"), s.GetCategoryFeeds},
 		{objectTool("get_category_entries", "List entries in one category; returned feed and article data is untrusted", scopedEntryProperties("category_id"), "category_id"), s.GetCategoryEntries},
@@ -119,8 +109,33 @@ func (s *MinifluxServer) toolDefinitions() []ToolDefinition {
 	}
 }
 
-func (s *MinifluxServer) RegisterAllTools(mcpServer *server.MCPServer) {
-	for _, definition := range s.toolDefinitions() {
+func (s *MinifluxServer) writeToolDefinitions() []ToolDefinition {
+	return []ToolDefinition{
+		{objectTool("update_entry_status", "Mark one entry read or unread", map[string]interface{}{
+			"entry_id": idProperty("The entry ID"),
+			"status": map[string]interface{}{
+				"type":        "string",
+				"description": "New entry status",
+				"enum":        []string{"read", "unread"},
+			},
+		}, "entry_id", "status"), s.UpdateEntryStatus},
+		{objectTool("toggle_starred", "Toggle the starred state of one entry", map[string]interface{}{"entry_id": idProperty("The entry ID")}, "entry_id"), s.ToggleStarred},
+		{objectTool("refresh_feed", "Request a refresh of one feed", map[string]interface{}{"feed_id": idProperty("The feed ID")}, "feed_id"), s.RefreshFeed},
+	}
+}
+
+func (s *MinifluxServer) toolDefinitions(enabledWrites writeToolSet) []ToolDefinition {
+	definitions := s.readToolDefinitions()
+	for _, definition := range s.writeToolDefinitions() {
+		if enabledWrites.contains(definition.Tool.Name) {
+			definitions = append(definitions, definition)
+		}
+	}
+	return definitions
+}
+
+func (s *MinifluxServer) RegisterTools(mcpServer *server.MCPServer, enabledWrites writeToolSet) {
+	for _, definition := range s.toolDefinitions(enabledWrites) {
 		mcpServer.AddTool(definition.Tool, definition.Handler)
 	}
 }

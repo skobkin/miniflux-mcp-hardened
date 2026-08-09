@@ -212,7 +212,7 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 	}
 
 	command := exec.Command(serverPath)
-	command.Env = os.Environ()
+	command.Env = append(os.Environ(), "MCP_WRITE_TOOLS=")
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		t.Fatalf("create server stdin: %v", err)
@@ -289,6 +289,11 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 			t.Fatalf("tools/list unexpectedly included removed tool %q", name)
 		}
 	}
+	for _, name := range []string{"update_entry_status", "toggle_starred", "refresh_feed"} {
+		if slices.Contains(toolNames, name) {
+			t.Fatalf("tools/list unexpectedly included disabled write tool %q", name)
+		}
+	}
 
 	versionText, err := client.callTool("get_version", map[string]any{})
 	if err != nil {
@@ -346,6 +351,7 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 		"MCP_HTTP_ADDR="+address,
 		"MCP_HTTP_PATH=/mcp",
 		"MCP_AUTH_TOKEN="+token,
+		"MCP_WRITE_TOOLS=",
 	)
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
@@ -447,6 +453,11 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 	for _, name := range []string{"create_category", "delete_category", "create_user", "get_api_keys", "flush_history"} {
 		if slices.Contains(toolNames, name) {
 			t.Fatalf("remote tools/list unexpectedly included removed tool %q", name)
+		}
+	}
+	for _, name := range []string{"update_entry_status", "toggle_starred", "refresh_feed"} {
+		if slices.Contains(toolNames, name) {
+			t.Fatalf("remote tools/list unexpectedly included disabled write tool %q", name)
 		}
 	}
 }
