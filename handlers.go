@@ -176,15 +176,15 @@ func parseEntryFilter(arguments map[string]interface{}) (*client.Filter, *mcp.Ca
 	}
 	if value, exists := arguments["order"]; exists {
 		order, ok := value.(string)
-		if !ok {
-			return nil, mcp.NewToolResultError("order must be a string")
+		if !ok || !validEntryOrder(order) {
+			return nil, mcp.NewToolResultError("order is not supported")
 		}
 		filter.Order = order
 	}
 	if value, exists := arguments["direction"]; exists {
 		direction, ok := value.(string)
-		if !ok {
-			return nil, mcp.NewToolResultError("direction must be a string")
+		if !ok || direction != "asc" && direction != "desc" {
+			return nil, mcp.NewToolResultError("direction must be asc or desc")
 		}
 		filter.Direction = direction
 	}
@@ -196,6 +196,15 @@ func parseEntryFilter(arguments map[string]interface{}) (*client.Filter, *mcp.Ca
 		filter.GloballyVisible = globallyVisible
 	}
 	return filter, nil
+}
+
+func validEntryOrder(order string) bool {
+	switch order {
+	case "id", "status", "changed_at", "published_at", "created_at", "category_title", "category_id", "title", "author":
+		return true
+	default:
+		return false
+	}
 }
 
 func validFilterStatus(status string) bool {

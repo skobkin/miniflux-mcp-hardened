@@ -100,3 +100,38 @@ func TestGetEntriesFilters(t *testing.T) {
 		t.Errorf("total = %d, want 12", entries.Total)
 	}
 }
+
+func TestParseEntryFilterValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		arguments map[string]interface{}
+	}{
+		{name: "zero limit", arguments: map[string]interface{}{"limit": float64(0)}},
+		{name: "large limit", arguments: map[string]interface{}{"limit": float64(maximumEntryLimit + 1)}},
+		{name: "negative offset", arguments: map[string]interface{}{"offset": float64(-1)}},
+		{name: "zero feed id", arguments: map[string]interface{}{"feed_id": float64(0)}},
+		{name: "fractional id", arguments: map[string]interface{}{"feed_id": 1.5}},
+		{name: "invalid status", arguments: map[string]interface{}{"status": "pending"}},
+		{name: "invalid order", arguments: map[string]interface{}{"order": "password"}},
+		{name: "invalid direction", arguments: map[string]interface{}{"direction": "sideways"}},
+		{name: "non-boolean starred", arguments: map[string]interface{}{"starred": "yes"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, result := parseEntryFilter(test.arguments); result == nil || !result.IsError {
+				t.Fatalf("parseEntryFilter(%v) succeeded, want tool error", test.arguments)
+			}
+		})
+	}
+}
+
+func TestParseEntryFilterDefaultsToBoundedLimit(t *testing.T) {
+	filter, result := parseEntryFilter(map[string]interface{}{})
+	if result != nil {
+		t.Fatalf("parseEntryFilter returned tool error: %#v", result.Content)
+	}
+	if filter.Limit != defaultEntryLimit {
+		t.Fatalf("limit = %d, want %d", filter.Limit, defaultEntryLimit)
+	}
+}
