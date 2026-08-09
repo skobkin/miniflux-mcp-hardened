@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	defaultEntryLimit = 50
-	maximumEntryLimit = 100
+	defaultEntryLimit      = 50
+	maximumEntryLimit      = 100
+	maximumSafeJSONInteger = 1<<53 - 1
 )
 
 func argumentsMap(request mcp.CallToolRequest) (map[string]interface{}, *mcp.CallToolResult) {
@@ -38,8 +39,8 @@ func integerArgument(arguments map[string]interface{}, name string, required boo
 	var parsed int64
 	switch number := value.(type) {
 	case float64:
-		if math.Trunc(number) != number || number > math.MaxInt64 || number < math.MinInt64 {
-			return 0, mcp.NewToolResultError(fmt.Sprintf("%s must be an integer", name))
+		if math.Trunc(number) != number || number > maximumSafeJSONInteger || number < -maximumSafeJSONInteger {
+			return 0, mcp.NewToolResultError(fmt.Sprintf("%s must be a safely representable integer", name))
 		}
 		parsed = int64(number)
 	case int:

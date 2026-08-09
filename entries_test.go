@@ -111,6 +111,7 @@ func TestParseEntryFilterValidation(t *testing.T) {
 		{name: "negative offset", arguments: map[string]interface{}{"offset": float64(-1)}},
 		{name: "zero feed id", arguments: map[string]interface{}{"feed_id": float64(0)}},
 		{name: "fractional id", arguments: map[string]interface{}{"feed_id": 1.5}},
+		{name: "unsafe float id", arguments: map[string]interface{}{"feed_id": float64(1 << 53)}},
 		{name: "zero published timestamp", arguments: map[string]interface{}{"published_after": float64(0)}},
 		{name: "invalid status", arguments: map[string]interface{}{"status": "pending"}},
 		{name: "invalid order", arguments: map[string]interface{}{"order": "password"}},
@@ -124,6 +125,22 @@ func TestParseEntryFilterValidation(t *testing.T) {
 				t.Fatalf("parseEntryFilter(%v) succeeded, want tool error", test.arguments)
 			}
 		})
+	}
+}
+
+func TestIntegerArgumentAcceptsMaximumSafeFloat(t *testing.T) {
+	value, result := integerArgument(
+		map[string]interface{}{"entry_id": float64(maximumSafeJSONInteger)},
+		"entry_id",
+		true,
+		1,
+		0,
+	)
+	if result != nil {
+		t.Fatalf("integerArgument returned tool error: %#v", result.Content)
+	}
+	if value != maximumSafeJSONInteger {
+		t.Fatalf("integerArgument returned %d, want %d", value, maximumSafeJSONInteger)
 	}
 }
 
