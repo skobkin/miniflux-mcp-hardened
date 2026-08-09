@@ -15,7 +15,7 @@ func TestParseAllowedOrigins(t *testing.T) {
 		wantError bool
 	}{
 		{name: "empty", value: "", expected: map[string]struct{}{}},
-		{name: "multiple", value: "https://one.example, http://localhost:3000", expected: map[string]struct{}{
+		{name: "multiple", value: "HTTPS://ONE.EXAMPLE:443, http://LOCALHOST:3000", expected: map[string]struct{}{
 			"https://one.example":   {},
 			"http://localhost:3000": {},
 		}},
@@ -26,6 +26,8 @@ func TestParseAllowedOrigins(t *testing.T) {
 		{name: "userinfo", value: "https://user@example.com", wantError: true},
 		{name: "path", value: "https://example.com/path", wantError: true},
 		{name: "query", value: "https://example.com?token=value", wantError: true},
+		{name: "empty query", value: "https://example.com?", wantError: true},
+		{name: "empty fragment", value: "https://example.com#", wantError: true},
 	}
 
 	for _, test := range tests {
@@ -89,6 +91,7 @@ func TestHTTPOriginAndBearerProtection(t *testing.T) {
 		{name: "non-browser authenticated", method: http.MethodPost, token: token, wantStatus: http.StatusOK},
 		{name: "non-browser missing token", method: http.MethodPost, wantStatus: http.StatusUnauthorized},
 		{name: "allowed origin authenticated", method: http.MethodPost, originHeaders: []string{allowedOrigin}, token: token, wantStatus: http.StatusOK, wantAllowedOrigin: allowedOrigin},
+		{name: "equivalent origin authenticated", method: http.MethodPost, originHeaders: []string{"HTTPS://CLIENT.EXAMPLE:443"}, token: token, wantStatus: http.StatusOK, wantAllowedOrigin: "HTTPS://CLIENT.EXAMPLE:443"},
 		{name: "allowed origin bad token", method: http.MethodPost, originHeaders: []string{allowedOrigin}, token: "wrong", wantStatus: http.StatusUnauthorized, wantAllowedOrigin: allowedOrigin},
 		{name: "unapproved origin", method: http.MethodPost, originHeaders: []string{"https://evil.example"}, token: token, wantStatus: http.StatusForbidden},
 		{name: "multiple origin headers", method: http.MethodPost, originHeaders: []string{allowedOrigin, "https://evil.example"}, token: token, wantStatus: http.StatusForbidden},

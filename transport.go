@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -71,13 +72,39 @@ func parseAllowedOrigins(value string) (map[string]struct{}, error) {
 		if origin == "" {
 			return nil, fmt.Errorf("MCP_ALLOWED_ORIGINS contains an empty origin")
 		}
-		parsed, err := url.Parse(origin)
-		if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		normalized, err := normalizeOrigin(origin)
+		if err != nil {
 			return nil, fmt.Errorf("MCP_ALLOWED_ORIGINS contains invalid origin %q; expected http(s)://host[:port]", origin)
 		}
-		allowed[origin] = struct{}{}
+		allowed[normalized] = struct{}{}
 	}
 	return allowed, nil
+}
+
+func normalizeOrigin(origin string) (string, error) {
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return "", err
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.ForceQuery || parsed.RawQuery != "" || strings.Contains(origin, "#") {
+		return "", fmt.Errorf("invalid origin")
+	}
+
+	hostname := strings.ToLower(parsed.Hostname())
+	if hostname == "" {
+		return "", fmt.Errorf("invalid origin")
+	}
+	port := parsed.Port()
+	if scheme == "http" && port == "80" || scheme == "https" && port == "443" {
+		port = ""
+	}
+	if port != "" {
+		hostname = net.JoinHostPort(hostname, port)
+	} else if strings.Contains(hostname, ":") {
+		hostname = "[" + hostname + "]"
+	}
+	return scheme + "://" + hostname, nil
 }
 
 func envOrDefault(name, fallback string) string {
@@ -136,7 +163,12 @@ func validateOrigin(allowedOrigins map[string]struct{}, next http.Handler) http.
 		}
 
 		origin := originHeaders[0]
-		if _, ok := allowedOrigins[origin]; !ok {
+		normalized, err := normalizeOrigin(origin)
+		if err != nil {
+			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+			return
+		}
+		if _, ok := allowedOrigins[normalized]; !ok {
 			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 			return
 		}

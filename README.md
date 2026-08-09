@@ -135,7 +135,7 @@ Example `.mcp.json`:
 | `MCP_HTTP_ADDR` | Listen address | `:8080` |
 | `MCP_HTTP_PATH` | MCP endpoint path | `/mcp` |
 | `MCP_AUTH_TOKEN` | Bearer token protecting the MCP endpoint | Required in HTTP mode |
-| `MCP_ALLOWED_ORIGINS` | Comma-separated exact browser origins such as `https://client.example` | Empty; reject all requests carrying `Origin` |
+| `MCP_ALLOWED_ORIGINS` | Comma-separated browser origins such as `https://client.example`; scheme/host case and default ports are normalized | Empty; reject all requests carrying `Origin` |
 
 Requests without `Origin`, including ordinary non-browser MCP clients, remain usable. Configured origins must be exact `http://host[:port]` or `https://host[:port]` values without paths, credentials, queries, or fragments. There is no wildcard mode.
 
