@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"miniflux.app/v2/client"
@@ -123,6 +124,8 @@ func resultText(t *testing.T, result *mcp.CallToolResult) string {
 }
 
 func TestGetFeedsSanitizesSensitiveFields(t *testing.T) {
+	checkedAt := time.Date(2026, time.August, 9, 12, 0, 0, 0, time.UTC)
+	nextCheckAt := checkedAt.Add(time.Hour)
 	feed := &client.Feed{
 		ID:                 42,
 		Title:              "Example",
@@ -136,6 +139,8 @@ func TestGetFeedsSanitizesSensitiveFields(t *testing.T) {
 		WebhookURL:         sentinelSecret,
 		EtagHeader:         sentinelSecret,
 		ParsingErrorMsg:    sentinelSecret,
+		CheckedAt:          checkedAt,
+		NextCheckAt:        nextCheckAt,
 		Category: &client.Category{
 			ID:     7,
 			Title:  "News",
@@ -159,6 +164,32 @@ func TestGetFeedsSanitizesSensitiveFields(t *testing.T) {
 	})
 	if fake.lastContext == nil {
 		t.Fatal("request context was not passed to Miniflux client")
+	}
+}
+
+func TestFeedOmitsUnknownPollingTimes(t *testing.T) {
+	server := &MinifluxServer{client: &fakeMinifluxClient{feeds: client.Feeds{{ID: 42, Title: "Unchecked"}}}}
+
+	result, err := server.GetFeeds(context.Background(), mcp.CallToolRequest{})
+	if err != nil {
+		t.Fatalf("GetFeeds returned error: %v", err)
+	}
+	text := resultText(t, result)
+	if strings.Contains(text, "0001-01-01") {
+		t.Fatalf("serialized feed contained a zero timestamp: %s", text)
+	}
+
+	var feeds []map[string]interface{}
+	if err := json.Unmarshal([]byte(text), &feeds); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(feeds) != 1 {
+		t.Fatalf("decoded object count = %d, want 1", len(feeds))
+	}
+	for _, field := range []string{"checked_at", "next_check_at"} {
+		if _, exists := feeds[0][field]; exists {
+			t.Errorf("serialized unchecked feed contained %q: %s", field, text)
+		}
 	}
 }
 

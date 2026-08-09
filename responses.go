@@ -25,8 +25,8 @@ type MCPFeed struct {
 	SiteURL           string       `json:"site_url"`
 	Description       string       `json:"description"`
 	Language          string       `json:"language"`
-	CheckedAt         time.Time    `json:"checked_at"`
-	NextCheckAt       time.Time    `json:"next_check_at"`
+	CheckedAt         *time.Time   `json:"checked_at,omitempty"`
+	NextCheckAt       *time.Time   `json:"next_check_at,omitempty"`
 	Disabled          bool         `json:"disabled"`
 	ParsingErrorCount int          `json:"parsing_error_count"`
 	Category          *MCPCategory `json:"category,omitempty"`
@@ -104,12 +104,19 @@ func toMCPFeed(feed *client.Feed) *MCPFeed {
 		SiteURL:           feed.SiteURL,
 		Description:       feed.Description,
 		Language:          feed.Language,
-		CheckedAt:         feed.CheckedAt,
-		NextCheckAt:       feed.NextCheckAt,
+		CheckedAt:         nonZeroTime(feed.CheckedAt),
+		NextCheckAt:       nonZeroTime(feed.NextCheckAt),
 		Disabled:          feed.Disabled,
 		ParsingErrorCount: feed.ParsingErrorCount,
 		Category:          toMCPCategory(feed.Category),
 	}
+}
+
+func nonZeroTime(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
 }
 
 func toMCPFeeds(feeds client.Feeds) []*MCPFeed {
