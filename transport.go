@@ -19,6 +19,10 @@ const (
 	transportStreamableHTTP = "streamable-http"
 	defaultHTTPAddr         = ":8080"
 	defaultHTTPPath         = "/mcp"
+	httpReadTimeout         = 30 * time.Second
+	httpReadHeaderTimeout   = 5 * time.Second
+	httpIdleTimeout         = 2 * time.Minute
+	httpMaxHeaderBytes      = 32 << 10
 )
 
 type transportConfig struct {
@@ -135,13 +139,21 @@ func serveStreamableHTTP(mcpServer *server.MCPServer, cfg transportConfig) error
 	mux.Handle(cfg.HTTPPath, validateOrigin(cfg.AllowedOrigins, requireBearerToken(cfg.AuthToken, mcpHandler)))
 	mux.HandleFunc("/healthz", healthcheckHTTP)
 
-	httpServer := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-		IdleTimeout:       2 * time.Minute,
-	}
+	httpServer := newHTTPServer(cfg.HTTPAddr, mux)
 	return httpServer.ListenAndServe()
+}
+
+func newHTTPServer(address string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              address,
+		Handler:           handler,
+		ReadTimeout:       httpReadTimeout,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		IdleTimeout:       httpIdleTimeout,
+		MaxHeaderBytes:    httpMaxHeaderBytes,
+		// Streamable HTTP may use long-lived SSE responses, so a server-wide
+		// WriteTimeout would terminate valid streams.
+	}
 }
 
 func healthcheckHTTP(w http.ResponseWriter, _ *http.Request) {

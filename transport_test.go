@@ -154,3 +154,23 @@ func TestHealthcheckResponseIsMinimal(t *testing.T) {
 		t.Fatalf("Content-Type = %q", response.Header().Get("Content-Type"))
 	}
 }
+
+func TestHTTPServerBoundsRequestReads(t *testing.T) {
+	server := newHTTPServer(":0", http.NotFoundHandler())
+
+	if server.ReadTimeout != httpReadTimeout {
+		t.Errorf("ReadTimeout = %s, want %s", server.ReadTimeout, httpReadTimeout)
+	}
+	if server.ReadHeaderTimeout != httpReadHeaderTimeout {
+		t.Errorf("ReadHeaderTimeout = %s, want %s", server.ReadHeaderTimeout, httpReadHeaderTimeout)
+	}
+	if server.IdleTimeout != httpIdleTimeout {
+		t.Errorf("IdleTimeout = %s, want %s", server.IdleTimeout, httpIdleTimeout)
+	}
+	if server.MaxHeaderBytes != httpMaxHeaderBytes {
+		t.Errorf("MaxHeaderBytes = %d, want %d", server.MaxHeaderBytes, httpMaxHeaderBytes)
+	}
+	if server.WriteTimeout != 0 {
+		t.Errorf("WriteTimeout = %s, want zero for SSE support", server.WriteTimeout)
+	}
+}
