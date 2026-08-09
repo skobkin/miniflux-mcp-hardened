@@ -1,0 +1,62 @@
+version: 2
+
+project_name: miniflux-mcp-hardened
+
+gitea_urls:
+  api: "{{ .Env.FORGE_API_URL }}"
+  download: "{{ .Env.FORGE_DOWNLOAD_URL }}"
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: miniflux-mcp
+    main: .
+    binary: miniflux-mcp
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -buildid=
+      - -X main.Version={{ .Version }}
+      - -X main.Revision={{ .ShortCommit }}
+      - -X main.BuildDate={{ .CommitDate }}
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]-]+\))?!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\([[:word:]-]+\))?!?:.+$'
+      order: 1
+    - title: Reverts
+      regexp: '^.*?[Rr]evert\b.*$'
+      order: 999
+    - title: Other Changes
+      order: 1000
+  filters:
+    exclude:
+      - '^build(\([^)]*\))?!?:'
+      - '^ci(\([^)]*\))?!?:'
+      - '^chore(\([^)]*\))?!?:'
+      - '^docs(\([^)]*\))?!?:'
+      - '^refactor(\([^)]*\))?!?:'
+      - '^style(\([^)]*\))?!?:'
+      - '^test(\([^)]*\))?!?:'

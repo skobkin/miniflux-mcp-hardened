@@ -181,6 +181,23 @@ services:
 
 Terminate TLS at a reverse proxy whenever traffic leaves a trusted private network; otherwise the Bearer token and returned feed data are not encrypted in transit.
 
+## Continuous integration and releases
+
+Woodpecker CI is authoritative for this repository. Pushes and pull requests targeting `main` run formatting, lint, vet, unit, race, build, and end-to-end checks. End-to-end checks start pinned PostgreSQL and Miniflux containers inside the Woodpecker workflow and exercise both stdio and authenticated Streamable HTTP transports.
+
+Tags matching `v*` run the same checks before publishing:
+
+- a static Linux AMD64 archive and checksum to the Forgejo release;
+- `skobkin/miniflux-mcp-hardened` to Docker Hub with `latest`, major, minor, and patch tags.
+
+The release steps require these Woodpecker repository secrets:
+
+| Secret | Purpose |
+| --- | --- |
+| `FORGE_TOKEN` | Create the Forgejo release and upload its assets |
+| `DOCKER_LOGIN` | Authenticate to Docker Hub |
+| `DOCKER_TOKEN` | Push the release image and build cache to Docker Hub |
+
 ## Deliberate differences from upstream
 
 The upstream-oriented implementation exposed broad Miniflux API coverage. This fork removes the following MCP tools rather than merely disabling them by documentation:
@@ -208,6 +225,21 @@ go build ./...
 ```
 
 Tests use local fakes and `httptest`; a running Miniflux/PostgreSQL stack is not required for unit validation.
+
+Run the end-to-end suite with Docker Compose:
+
+```bash
+make e2e
+```
+
+When Miniflux is already running, use the Docker-independent target:
+
+```bash
+make e2e-test \
+  E2E_MINIFLUX_URL=http://miniflux:8080 \
+  E2E_MINIFLUX_USERNAME=admin \
+  E2E_MINIFLUX_PASSWORD=test123
+```
 
 ## License
 
