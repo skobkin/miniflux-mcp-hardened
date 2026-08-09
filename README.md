@@ -29,6 +29,7 @@ One server process uses one configured Miniflux identity. Miniflux permissions s
 | `MCP_WRITE_TOOLS` | Comma-separated allowlist of supported write tools | No; empty means read-only |
 
 If both authentication forms are present, the API key is used. Credentials configure the server itself and are never accepted as MCP tool arguments.
+Health and authentication probes share a 15-second startup deadline and stop early on process termination.
 
 ### Optional write tools
 
@@ -69,12 +70,12 @@ The following 13 tools are always available:
 - `healthcheck`
 - `fetch_counters`
 
-Entry collection tools default to 50 results and reject limits above 100. IDs must be positive integers and offsets must be non-negative.
+Entry collection tools default to 50 results and reject limits above 100. IDs and Unix timestamp filters must be positive integers; offsets must be non-negative.
 
 ### Sanitized responses
 
 - Categories expose identity, visibility, and available feed/unread counts.
-- Feeds expose identity, public site metadata, language, check timestamps, disabled state, parsing-error count, and a sanitized category.
+- Feeds expose identity, public site metadata, language, known check timestamps, disabled state, parsing-error count, and a sanitized category. Unknown check times are omitted.
 - Entry lists expose article metadata, status, tags, and sanitized feed identity without article content.
 - Single-entry tools additionally expose article content, comments URL, and creation timestamp.
 - Version and counter tools return compact purpose-specific objects.
