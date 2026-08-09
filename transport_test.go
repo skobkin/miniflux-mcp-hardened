@@ -68,6 +68,21 @@ func TestLoadTransportConfigValidatesOriginsInHTTPMode(t *testing.T) {
 	}
 }
 
+func TestLoadTransportConfigRejectsInvalidHTTPPaths(t *testing.T) {
+	t.Setenv("MCP_TRANSPORT", transportStreamableHTTP)
+	t.Setenv("MCP_AUTH_TOKEN", "secret")
+	t.Setenv("MCP_ALLOWED_ORIGINS", "")
+
+	for _, httpPath := range []string{"/mcp/{", "/mcp/{session}"} {
+		t.Run(httpPath, func(t *testing.T) {
+			t.Setenv("MCP_HTTP_PATH", httpPath)
+			if _, err := loadTransportConfig(); err == nil {
+				t.Fatalf("loadTransportConfig accepted invalid path %q", httpPath)
+			}
+		})
+	}
+}
+
 func TestHTTPOriginAndBearerProtection(t *testing.T) {
 	const (
 		token         = "correct-token"

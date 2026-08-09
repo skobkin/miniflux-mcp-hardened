@@ -48,11 +48,8 @@ func loadTransportConfig() (transportConfig, error) {
 		if cfg.AuthToken == "" {
 			return transportConfig{}, fmt.Errorf("MCP_AUTH_TOKEN is required when MCP_TRANSPORT=%s", transportStreamableHTTP)
 		}
-		if !strings.HasPrefix(cfg.HTTPPath, "/") || cfg.HTTPPath == "/" {
-			return transportConfig{}, fmt.Errorf("MCP_HTTP_PATH must start with / and cannot be /")
-		}
-		if cfg.HTTPPath == "/healthz" {
-			return transportConfig{}, fmt.Errorf("MCP_HTTP_PATH cannot be /healthz")
+		if err := validateHTTPPath(cfg.HTTPPath); err != nil {
+			return transportConfig{}, err
 		}
 		allowedOrigins, err := parseAllowedOrigins(os.Getenv("MCP_ALLOWED_ORIGINS"))
 		if err != nil {
@@ -63,6 +60,26 @@ func loadTransportConfig() (transportConfig, error) {
 	default:
 		return transportConfig{}, fmt.Errorf("unsupported MCP_TRANSPORT %q (supported: %s, %s)", cfg.Transport, transportStdio, transportStreamableHTTP)
 	}
+}
+
+func validateHTTPPath(httpPath string) (err error) {
+	if !strings.HasPrefix(httpPath, "/") || httpPath == "/" {
+		return fmt.Errorf("MCP_HTTP_PATH must start with / and cannot be /")
+	}
+	if httpPath == "/healthz" {
+		return fmt.Errorf("MCP_HTTP_PATH cannot be /healthz")
+	}
+	if strings.ContainsAny(httpPath, "{}") {
+		return fmt.Errorf("MCP_HTTP_PATH must be a literal path without wildcards")
+	}
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("MCP_HTTP_PATH is not a valid HTTP path")
+		}
+	}()
+	http.NewServeMux().Handle(httpPath, http.NotFoundHandler())
+	return nil
 }
 
 func parseAllowedOrigins(value string) (map[string]struct{}, error) {
