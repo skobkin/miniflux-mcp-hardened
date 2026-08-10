@@ -44,23 +44,13 @@ type minifluxStartupClient interface {
 }
 
 func NewMinifluxServer(ctx context.Context) (*MinifluxServer, error) {
-	baseURL := os.Getenv("MINIFLUX_URL")
-	if baseURL == "" {
-		return nil, errors.New("MINIFLUX_URL environment variable is required")
+	cfg, err := loadMinifluxConfig()
+	if err != nil {
+		return nil, err
 	}
-
-	apiKey := os.Getenv("MINIFLUX_API_KEY")
-	username := os.Getenv("MINIFLUX_USERNAME")
-	password := os.Getenv("MINIFLUX_PASSWORD")
-	if apiKey == "" && (username == "" || password == "") {
-		return nil, errors.New("either MINIFLUX_API_KEY or both MINIFLUX_USERNAME and MINIFLUX_PASSWORD must be set")
-	}
-
-	var minifluxClient *client.Client
-	if apiKey != "" {
-		minifluxClient = client.NewClient(baseURL, apiKey)
-	} else {
-		minifluxClient = client.NewClient(baseURL, username, password)
+	minifluxClient, err := newMinifluxAPIClient(cfg)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := verifyMinifluxStartup(ctx, minifluxClient); err != nil {

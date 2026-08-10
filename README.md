@@ -69,6 +69,7 @@ Subscription `feed_url`, Miniflux user IDs, credentials, cookies, fetch/proxy se
 | `MINIFLUX_API_KEY` | API key used by this server | Required unless username/password are used |
 | `MINIFLUX_USERNAME` | Miniflux username | Use with `MINIFLUX_PASSWORD` when no API key is set |
 | `MINIFLUX_PASSWORD` | Miniflux password | Use with `MINIFLUX_USERNAME` when no API key is set |
+| `MINIFLUX_PROXY_URL` | Proxy for this process's connection to Miniflux; supports `http`, `https`, `socks5`, and `socks5h` | Unset; standard Go transport behavior |
 | `MCP_WRITE_TOOLS` | Comma-separated write-tool allowlist | Empty; read-only |
 | `MCP_TRANSPORT` | `stdio` or `streamable-http` | `stdio`; container image: `streamable-http` |
 | `MCP_HTTP_ADDR` | HTTP listen address | `:8080` |
@@ -76,7 +77,9 @@ Subscription `feed_url`, Miniflux user IDs, credentials, cookies, fetch/proxy se
 | `MCP_AUTH_TOKEN` | Bearer token protecting the MCP endpoint | Required for HTTP |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated browser origins | Empty; reject requests carrying `Origin` |
 
-If both Miniflux authentication forms are configured, the API key is used. Credentials configure the server and are never accepted as MCP tool arguments. Health and authentication probes share a 15-second startup deadline and stop early on process termination.
+If both Miniflux authentication forms are configured, the API key is used. Credentials configure the server and are never accepted as MCP tool arguments. Health and authentication probes share a 15-second startup deadline and stop early on process termination. Miniflux API requests use a 30-second client timeout.
+
+`MINIFLUX_PROXY_URL` controls only MCP-to-Miniflux traffic; it does not change how Miniflux fetches feeds or articles. When unset, Go's default transport continues to honor `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. When set, the explicit proxy is used for both HTTP and HTTPS Miniflux URLs while `NO_PROXY`/`no_proxy` exclusions remain effective. Proxy credentials may be supplied as URL userinfo but are never included in MCP results, logs, or startup errors.
 
 Enable any combination of the four non-default tools listed in the catalog:
 
