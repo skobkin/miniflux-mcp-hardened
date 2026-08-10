@@ -130,6 +130,71 @@ func TestParseEntryFilterValidation(t *testing.T) {
 	}
 }
 
+func TestParseEntryFilterValidationMessages(t *testing.T) {
+	tests := []struct {
+		name        string
+		arguments   map[string]interface{}
+		wantMessage string
+	}{
+		{name: "statuses outer type", arguments: map[string]interface{}{"statuses": "read"}, wantMessage: "statuses must be an array of strings"},
+		{name: "statuses element type", arguments: map[string]interface{}{"statuses": []interface{}{"read", []interface{}{"unread"}}}, wantMessage: "statuses[1] must be a string"},
+		{name: "statuses element value", arguments: map[string]interface{}{"statuses": []interface{}{"read", "pending"}}, wantMessage: "statuses[1] must be one of: read, unread, removed"},
+		{name: "status type", arguments: map[string]interface{}{"status": true}, wantMessage: "status must be a string"},
+		{name: "status value", arguments: map[string]interface{}{"status": "pending"}, wantMessage: "status must be one of: read, unread, removed"},
+		{name: "order type", arguments: map[string]interface{}{"order": true}, wantMessage: "order must be a string"},
+		{name: "order value", arguments: map[string]interface{}{"order": "password"}, wantMessage: "order must be one of: id, status, changed_at, published_at, created_at, category_title, category_id, title, author"},
+		{name: "direction type", arguments: map[string]interface{}{"direction": true}, wantMessage: "direction must be a string"},
+		{name: "direction value", arguments: map[string]interface{}{"direction": "sideways"}, wantMessage: "direction must be one of: asc, desc"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, result := parseEntryFilter(test.arguments)
+			if result == nil || !result.IsError {
+				t.Fatalf("parseEntryFilter(%v) succeeded, want tool error", test.arguments)
+			}
+			if message := resultText(t, result); message != test.wantMessage {
+				t.Fatalf("validation message = %q, want %q", message, test.wantMessage)
+			}
+		})
+	}
+}
+
+func TestArgumentsMustBeJSONObject(t *testing.T) {
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: []interface{}{}}}
+	result, err := (&MinifluxServer{}).GetEntries(context.Background(), request)
+	if err != nil || result == nil || !result.IsError {
+		t.Fatalf("GetEntries = %#v, %v; want tool error", result, err)
+	}
+	if message := resultText(t, result); message != "arguments must be a JSON object" {
+		t.Fatalf("validation message = %q", message)
+	}
+}
+
+func TestContentOffsetValidationMessages(t *testing.T) {
+	entry := &client.Entry{Content: "界"}
+	tests := []struct {
+		name          string
+		contentOffset int64
+		wantMessage   string
+	}{
+		{name: "past content", contentOffset: 4, wantMessage: "content_offset exceeds content length; use 0 or next_content_offset from the previous response"},
+		{name: "inside UTF-8 sequence", contentOffset: 1, wantMessage: "content_offset must be 0 or a next_content_offset returned by the previous response"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := boundedEntryDetailResult(entry, test.contentOffset)
+			if err != nil || result == nil || !result.IsError {
+				t.Fatalf("boundedEntryDetailResult = %#v, %v; want tool error", result, err)
+			}
+			if message := resultText(t, result); message != test.wantMessage {
+				t.Fatalf("validation message = %q, want %q", message, test.wantMessage)
+			}
+		})
+	}
+}
+
 func TestIntegerArgumentAcceptsMaximumSafeFloat(t *testing.T) {
 	value, result := integerArgument(
 		map[string]interface{}{"entry_id": float64(maximumSafeJSONInteger)},

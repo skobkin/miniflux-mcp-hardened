@@ -103,25 +103,39 @@ func TestUpdateEntriesStatusValidation(t *testing.T) {
 		tooMany[i] = float64(i + 1)
 	}
 	tests := []struct {
-		name      string
-		arguments map[string]interface{}
+		name        string
+		arguments   map[string]interface{}
+		wantMessage string
 	}{
-		{name: "missing", arguments: map[string]interface{}{}},
-		{name: "wrong type", arguments: map[string]interface{}{"entry_ids": "1", "status": "read"}},
-		{name: "empty", arguments: map[string]interface{}{"entry_ids": []interface{}{}, "status": "read"}},
-		{name: "too many", arguments: map[string]interface{}{"entry_ids": tooMany, "status": "read"}},
-		{name: "duplicate", arguments: map[string]interface{}{"entry_ids": []interface{}{float64(1), float64(1)}, "status": "read"}},
-		{name: "zero", arguments: map[string]interface{}{"entry_ids": []interface{}{float64(0)}, "status": "read"}},
-		{name: "fractional", arguments: map[string]interface{}{"entry_ids": []interface{}{1.5}, "status": "read"}},
-		{name: "unsafe", arguments: map[string]interface{}{"entry_ids": []interface{}{float64(1 << 53)}, "status": "read"}},
-		{name: "removed", arguments: map[string]interface{}{"entry_ids": []interface{}{float64(1)}, "status": "removed"}},
-		{name: "unknown status", arguments: map[string]interface{}{"entry_ids": []interface{}{float64(1)}, "status": "pending"}},
+		{name: "missing entry IDs", arguments: map[string]interface{}{}, wantMessage: "entry_ids must contain at least one ID"},
+		{name: "wrong array type", arguments: map[string]interface{}{"entry_ids": "1", "status": "read"}, wantMessage: "entry_ids must be an array of integers"},
+		{name: "empty", arguments: map[string]interface{}{"entry_ids": []interface{}{}, "status": "read"}, wantMessage: "entry_ids must contain at least one ID"},
+		{name: "too many", arguments: map[string]interface{}{"entry_ids": tooMany, "status": "read"}, wantMessage: "entry_ids must contain at most 100 items"},
+		{name: "duplicate", arguments: map[string]interface{}{"entry_ids": []interface{}{float64(1), float64(1)}, "status": "read"}, wantMessage: "entry_ids[1] duplicates entry_ids[0]; IDs must be unique"},
+		{name: "zero", arguments: map[string]interface{}{"entry_ids": []interface{}{float64(0)}, "status": "read"}, wantMessage: "entry_ids[0] must be at least 1"},
+		{name: "fractional", arguments: map[string]interface{}{"entry_ids": []interface{}{1.5}, "status": "read"}, wantMessage: "entry_ids[0] must be an integer"},
+		{name: "unsafe", arguments: map[string]interface{}{"entry_ids": []interface{}{float64(1 << 53)}, "status": "read"}, wantMessage: "entry_ids[0] must be a safely representable JSON integer (absolute value must not exceed 9007199254740991)"},
+		{
+			name: "nested array",
+			arguments: map[string]interface{}{
+				"entry_ids": []interface{}{[]interface{}{float64(2477), float64(2896), float64(3287)}},
+				"status":    "read",
+			},
+			wantMessage: "entry_ids[0] must be an integer",
+		},
+		{name: "missing status", arguments: map[string]interface{}{"entry_ids": []interface{}{float64(1)}}, wantMessage: "status is required"},
+		{name: "wrong status type", arguments: map[string]interface{}{"entry_ids": []interface{}{float64(1)}, "status": true}, wantMessage: "status must be a string"},
+		{name: "removed", arguments: map[string]interface{}{"entry_ids": []interface{}{float64(1)}, "status": "removed"}, wantMessage: "status must be one of: read, unread"},
+		{name: "unknown status", arguments: map[string]interface{}{"entry_ids": []interface{}{float64(1)}, "status": "pending"}, wantMessage: "status must be one of: read, unread"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := (&MinifluxServer{}).UpdateEntriesStatus(context.Background(), mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: test.arguments}})
 			if err != nil || result == nil || !result.IsError {
 				t.Fatalf("UpdateEntriesStatus = %#v, %v; want tool error", result, err)
+			}
+			if message := resultText(t, result); message != test.wantMessage {
+				t.Fatalf("validation message = %q, want %q", message, test.wantMessage)
 			}
 		})
 	}

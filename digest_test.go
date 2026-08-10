@@ -68,6 +68,18 @@ func TestParseUnreadDigestOptionsValidation(t *testing.T) {
 	}
 }
 
+func TestDigestCategoryArrayValidationIdentifiesElement(t *testing.T) {
+	_, result := parseUnreadDigestOptions(map[string]interface{}{
+		"exclude_category_ids": []interface{}{float64(1), []interface{}{float64(2)}},
+	})
+	if result == nil || !result.IsError {
+		t.Fatal("parseUnreadDigestOptions succeeded, want tool error")
+	}
+	if message := resultText(t, result); message != "exclude_category_ids[1] must be an integer" {
+		t.Fatalf("validation message = %q", message)
+	}
+}
+
 func TestGetUnreadDigestBuildsBoundedOrderedResponse(t *testing.T) {
 	base := time.Date(2026, time.August, 10, 10, 0, 0, 0, time.UTC)
 	entries := &client.EntryResultSet{Total: 3, Entries: client.Entries{

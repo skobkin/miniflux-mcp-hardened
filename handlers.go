@@ -37,7 +37,7 @@ func argumentsMap(request mcp.CallToolRequest) (map[string]interface{}, *mcp.Cal
 	}
 	arguments, ok := request.Params.Arguments.(map[string]interface{})
 	if !ok {
-		return nil, mcp.NewToolResultError("invalid arguments format")
+		return nil, mcp.NewToolResultError("arguments must be a JSON object")
 	}
 
 	return arguments, nil
@@ -60,8 +60,11 @@ func integerValue(value interface{}, name string, minimum, maximum int64) (int64
 	var parsed int64
 	switch number := value.(type) {
 	case float64:
-		if math.Trunc(number) != number || number > maximumSafeJSONInteger || number < -maximumSafeJSONInteger {
-			return 0, mcp.NewToolResultError(fmt.Sprintf("%s must be a safely representable integer", name))
+		if math.Trunc(number) != number {
+			return 0, mcp.NewToolResultError(fmt.Sprintf("%s must be an integer", name))
+		}
+		if number > maximumSafeJSONInteger || number < -maximumSafeJSONInteger {
+			return 0, mcp.NewToolResultError(fmt.Sprintf("%s must be a safely representable JSON integer (absolute value must not exceed %d)", name, maximumSafeJSONInteger))
 		}
 		parsed = int64(number)
 	case int:
@@ -90,23 +93,24 @@ func integerArrayArgument(arguments map[string]interface{}, name string, maximum
 	}
 	items, ok := value.([]interface{})
 	if !ok {
-		return nil, mcp.NewToolResultError(fmt.Sprintf("%s must be an array", name))
+		return nil, mcp.NewToolResultError(fmt.Sprintf("%s must be an array of integers", name))
 	}
 	if len(items) > maximumItems {
-		return nil, mcp.NewToolResultError(fmt.Sprintf("%s must contain at most %d IDs", name, maximumItems))
+		return nil, mcp.NewToolResultError(fmt.Sprintf("%s must contain at most %d items", name, maximumItems))
 	}
 
 	result := make([]int64, 0, len(items))
-	seen := make(map[int64]struct{}, len(items))
-	for _, item := range items {
-		id, validationResult := integerValue(item, name, 1, 0)
+	seen := make(map[int64]int, len(items))
+	for index, item := range items {
+		path := fmt.Sprintf("%s[%d]", name, index)
+		id, validationResult := integerValue(item, path, 1, 0)
 		if validationResult != nil {
 			return nil, validationResult
 		}
-		if _, duplicate := seen[id]; duplicate {
-			return nil, mcp.NewToolResultError(fmt.Sprintf("%s must not contain duplicate IDs", name))
+		if firstIndex, duplicate := seen[id]; duplicate {
+			return nil, mcp.NewToolResultError(fmt.Sprintf("%s duplicates %s[%d]; IDs must be unique", path, name, firstIndex))
 		}
-		seen[id] = struct{}{}
+		seen[id] = index
 		result = append(result, id)
 	}
 
@@ -124,6 +128,31 @@ func stringArgument(arguments map[string]interface{}, name string, maximumLength
 	}
 	if utf8.RuneCountInString(parsed) > maximumLength {
 		return "", mcp.NewToolResultError(fmt.Sprintf("%s must contain at most %d characters", name, maximumLength))
+	}
+
+	return parsed, nil
+}
+
+func enumStringArgument(arguments map[string]interface{}, name string, required bool, allowed ...string) (string, *mcp.CallToolResult) {
+	value, exists := arguments[name]
+	if !exists {
+		if required {
+			return "", mcp.NewToolResultError(fmt.Sprintf("%s is required", name))
+		}
+
+		return "", nil
+	}
+
+	return enumStringValue(value, name, allowed...)
+}
+
+func enumStringValue(value interface{}, name string, allowed ...string) (string, *mcp.CallToolResult) {
+	parsed, ok := value.(string)
+	if !ok {
+		return "", mcp.NewToolResultError(fmt.Sprintf("%s must be a string", name))
+	}
+	if !slices.Contains(allowed, parsed) {
+		return "", mcp.NewToolResultError(fmt.Sprintf("%s must be one of: %s", name, strings.Join(allowed, ", ")))
 	}
 
 	return parsed, nil
@@ -191,20 +220,20 @@ func parseEntryFilter(arguments map[string]interface{}) (*client.Filter, *mcp.Ca
 	if rawStatuses, exists := arguments["statuses"]; exists {
 		statuses, ok := rawStatuses.([]interface{})
 		if !ok {
-			return nil, mcp.NewToolResultError("statuses must be an array")
+			return nil, mcp.NewToolResultError("statuses must be an array of strings")
 		}
-		for _, rawStatus := range statuses {
-			status, ok := rawStatus.(string)
-			if !ok || !validFilterStatus(status) {
-				return nil, mcp.NewToolResultError("statuses must contain only read, unread, or removed")
+		for index, rawStatus := range statuses {
+			status, result := enumStringValue(rawStatus, fmt.Sprintf("statuses[%d]", index), "read", "unread", "removed")
+			if result != nil {
+				return nil, result
 			}
 			filter.Statuses = append(filter.Statuses, status)
 		}
 	}
 	if rawStatus, exists := arguments["status"]; exists && len(filter.Statuses) == 0 {
-		status, ok := rawStatus.(string)
-		if !ok || !validFilterStatus(status) {
-			return nil, mcp.NewToolResultError("status must be read, unread, or removed")
+		status, result := enumStringValue(rawStatus, "status", "read", "unread", "removed")
+		if result != nil {
+			return nil, result
 		}
 		filter.Status = status
 	}
@@ -267,16 +296,16 @@ func parseEntryFilter(arguments map[string]interface{}) (*client.Filter, *mcp.Ca
 		}
 	}
 	if value, exists := arguments["order"]; exists {
-		order, ok := value.(string)
-		if !ok || !validEntryOrder(order) {
-			return nil, mcp.NewToolResultError("order is not supported")
+		order, result := enumStringValue(value, "order", "id", "status", "changed_at", "published_at", "created_at", "category_title", "category_id", "title", "author")
+		if result != nil {
+			return nil, result
 		}
 		filter.Order = order
 	}
 	if value, exists := arguments["direction"]; exists {
-		direction, ok := value.(string)
-		if !ok || direction != "asc" && direction != "desc" {
-			return nil, mcp.NewToolResultError("direction must be asc or desc")
+		direction, result := enumStringValue(value, "direction", "asc", "desc")
+		if result != nil {
+			return nil, result
 		}
 		filter.Direction = direction
 	}
@@ -289,19 +318,6 @@ func parseEntryFilter(arguments map[string]interface{}) (*client.Filter, *mcp.Ca
 	}
 
 	return filter, nil
-}
-
-func validEntryOrder(order string) bool {
-	switch order {
-	case "id", "status", "changed_at", "published_at", "created_at", "category_title", "category_id", "title", "author":
-		return true
-	default:
-		return false
-	}
-}
-
-func validFilterStatus(status string) bool {
-	return status == "read" || status == "unread" || status == "removed"
 }
 
 func (s *MinifluxServer) GetEntries(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -572,11 +588,11 @@ func (s *MinifluxServer) GetEntry(ctx context.Context, request mcp.CallToolReque
 func boundedEntryDetailResult(entry *client.Entry, contentOffset int64) (*mcp.CallToolResult, error) {
 	entry = entryWithValidUTF8Content(entry)
 	if contentOffset > int64(len(entry.Content)) {
-		return toolErrorResult("content_offset exceeds content length")
+		return toolErrorResult("content_offset exceeds content length; use 0 or next_content_offset from the previous response")
 	}
 	offset := int(contentOffset)
 	if offset < len(entry.Content) && !utf8.RuneStart(entry.Content[offset]) {
-		return toolErrorResult("content_offset must be a UTF-8 boundary")
+		return toolErrorResult("content_offset must be 0 or a next_content_offset returned by the previous response")
 	}
 
 	fullResult, err := marshalCompactToolResult(toMCPEntryDetail(entry, offset, len(entry.Content)))
@@ -648,9 +664,9 @@ func (s *MinifluxServer) UpdateEntryStatus(ctx context.Context, request mcp.Call
 	if result != nil {
 		return result, nil
 	}
-	status, ok := arguments["status"].(string)
-	if !ok || status != "read" && status != "unread" {
-		return toolErrorResult("status must be read or unread")
+	status, result := enumStringArgument(arguments, "status", true, "read", "unread")
+	if result != nil {
+		return result, nil
 	}
 	if err := s.client.UpdateEntriesContext(ctx, []int64{entryID}, status); err != nil {
 		return toolErrorResult("failed to update entry status")
@@ -671,9 +687,9 @@ func (s *MinifluxServer) UpdateEntriesStatus(ctx context.Context, request mcp.Ca
 	if len(entryIDs) == 0 {
 		return toolErrorResult("entry_ids must contain at least one ID")
 	}
-	status, ok := arguments["status"].(string)
-	if !ok || status != client.EntryStatusRead && status != client.EntryStatusUnread {
-		return toolErrorResult("status must be read or unread")
+	status, result := enumStringArgument(arguments, "status", true, client.EntryStatusRead, client.EntryStatusUnread)
+	if result != nil {
+		return result, nil
 	}
 	if err := s.client.UpdateEntriesContext(ctx, entryIDs, status); err != nil {
 		return toolErrorResult("failed to update entries status")
@@ -710,9 +726,9 @@ func (s *MinifluxServer) GetCategories(ctx context.Context, _ mcp.CallToolReques
 func scopedFilter(arguments map[string]interface{}) (*client.Filter, *mcp.CallToolResult) {
 	filter := &client.Filter{Limit: defaultEntryLimit}
 	if rawStatus, exists := arguments["status"]; exists {
-		status, ok := rawStatus.(string)
-		if !ok || !validFilterStatus(status) {
-			return nil, mcp.NewToolResultError("status must be read, unread, or removed")
+		status, result := enumStringValue(rawStatus, "status", "read", "unread", "removed")
+		if result != nil {
+			return nil, result
 		}
 		filter.Status = status
 	}
