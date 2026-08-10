@@ -95,7 +95,7 @@ func validateMinifluxProxyURL(value string) error {
 	if parsed.Host == "" {
 		return fmt.Errorf("MINIFLUX_PROXY_URL must include a host")
 	}
-	if parsed.Path != "" && parsed.Path != "/" || parsed.RawPath != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.ForceQuery {
+	if (parsed.Path != "" && parsed.Path != "/") || parsed.RawPath != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.ForceQuery {
 		return fmt.Errorf("MINIFLUX_PROXY_URL must not include a path, query, or fragment")
 	}
 
