@@ -63,6 +63,7 @@ func TestToolDefinitionsAreReadOnlyByDefault(t *testing.T) {
 		"get_feed_entries",
 		"get_feed_entry",
 		"get_feeds",
+		"get_unread_digest",
 		"get_version",
 		"healthcheck",
 	}
@@ -90,8 +91,8 @@ func TestEachAllowedWriteToolCanBeEnabled(t *testing.T) {
 			if !containsString(names, name) {
 				t.Fatalf("enabled tool %q not registered: %v", name, names)
 			}
-			if len(names) != 14 {
-				t.Fatalf("registered %d tools, want 14", len(names))
+			if len(names) != 15 {
+				t.Fatalf("registered %d tools, want 15", len(names))
 			}
 		})
 	}
@@ -138,6 +139,7 @@ func TestRegisteredSchemasDoNotAcceptSecrets(t *testing.T) {
 func TestEntryLimitSchemasMatchRuntimePolicy(t *testing.T) {
 	listTools := map[string]struct{}{
 		"get_entries":          {},
+		"get_unread_digest":    {},
 		"get_feed_entries":     {},
 		"get_category_entries": {},
 	}

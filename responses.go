@@ -65,6 +65,17 @@ type MCPEntryResultSet struct {
 	Entries []MCPEntrySummary `json:"entries"`
 }
 
+type MCPDigestEntry struct {
+	MCPEntrySummary
+	Content string `json:"content"`
+}
+
+type MCPUnreadDigest struct {
+	Entries       []MCPDigestEntry `json:"entries"`
+	AckEntryIDs   []int64          `json:"ack_entry_ids"`
+	ScanTruncated bool             `json:"scan_truncated"`
+}
+
 type MCPVersion struct {
 	Version string `json:"version"`
 }
@@ -178,6 +189,17 @@ func toMCPEntryDetail(entry *client.Entry) *MCPEntryDetail {
 		CommentsURL:     entry.CommentsURL,
 		Content:         entry.Content,
 		CreatedAt:       entry.CreatedAt,
+	}
+}
+
+func toMCPDigestEntry(entry *client.Entry) MCPDigestEntry {
+	if entry == nil {
+		return MCPDigestEntry{}
+	}
+
+	return MCPDigestEntry{
+		MCPEntrySummary: toMCPEntrySummary(entry),
+		Content:         entry.Content,
 	}
 }
 

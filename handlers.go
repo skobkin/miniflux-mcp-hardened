@@ -5,15 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"miniflux.app/v2/client"
 )
 
 const (
-	defaultEntryLimit      = 50
-	maximumEntryLimit      = 100
-	maximumSafeJSONInteger = 1<<53 - 1
+	defaultEntryLimit       = 50
+	maximumEntryLimit       = 100
+	maximumSafeJSONInteger  = 1<<53 - 1
+	maximumDigestCandidates = 1000
 )
 
 func toolErrorResult(message string) (*mcp.CallToolResult, error) {
@@ -66,6 +68,36 @@ func integerArgument(arguments map[string]interface{}, name string, required boo
 	}
 
 	return parsed, nil
+}
+
+func integerArrayArgument(arguments map[string]interface{}, name string, maximumItems int) ([]int64, *mcp.CallToolResult) {
+	value, exists := arguments[name]
+	if !exists {
+		return nil, nil
+	}
+	items, ok := value.([]interface{})
+	if !ok {
+		return nil, mcp.NewToolResultError(fmt.Sprintf("%s must be an array", name))
+	}
+	if len(items) > maximumItems {
+		return nil, mcp.NewToolResultError(fmt.Sprintf("%s must contain at most %d IDs", name, maximumItems))
+	}
+
+	result := make([]int64, 0, len(items))
+	seen := make(map[int64]struct{}, len(items))
+	for _, item := range items {
+		id, validationResult := integerArgument(map[string]interface{}{name: item}, name, true, 1, 0)
+		if validationResult != nil {
+			return nil, validationResult
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return nil, mcp.NewToolResultError(fmt.Sprintf("%s must not contain duplicate IDs", name))
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+
+	return result, nil
 }
 
 func marshalToolResult(value interface{}) (*mcp.CallToolResult, error) {
@@ -239,6 +271,149 @@ func (s *MinifluxServer) GetEntries(ctx context.Context, request mcp.CallToolReq
 	}
 
 	return marshalToolResult(toMCPEntryResultSet(entries))
+}
+
+type unreadDigestOptions struct {
+	limit              int
+	since              int64
+	feedID             int64
+	categoryIDs        []int64
+	excludeCategoryIDs []int64
+}
+
+func parseUnreadDigestOptions(arguments map[string]interface{}) (unreadDigestOptions, *mcp.CallToolResult) {
+	options := unreadDigestOptions{limit: defaultEntryLimit}
+
+	limit, result := integerArgument(arguments, "limit", false, 1, maximumEntryLimit)
+	if result != nil {
+		return options, result
+	}
+	if limit > 0 {
+		options.limit = int(limit)
+	}
+	options.since, result = integerArgument(arguments, "since", false, 1, 0)
+	if result != nil {
+		return options, result
+	}
+	options.feedID, result = integerArgument(arguments, "feed_id", false, 1, 0)
+	if result != nil {
+		return options, result
+	}
+	options.categoryIDs, result = integerArrayArgument(arguments, "category_ids", maximumEntryLimit)
+	if result != nil {
+		return options, result
+	}
+	options.excludeCategoryIDs, result = integerArrayArgument(arguments, "exclude_category_ids", maximumEntryLimit)
+	if result != nil {
+		return options, result
+	}
+
+	return options, nil
+}
+
+func (s *MinifluxServer) GetUnreadDigest(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	arguments, result := argumentsMap(request)
+	if result != nil {
+		return result, nil
+	}
+	options, result := parseUnreadDigestOptions(arguments)
+	if result != nil {
+		return result, nil
+	}
+
+	pageSize := options.limit
+	filterCategories := len(options.categoryIDs) > 0 || len(options.excludeCategoryIDs) > 0
+	if filterCategories {
+		pageSize = maximumEntryLimit
+	}
+
+	digestEntries := make([]MCPDigestEntry, 0, options.limit)
+	ackEntryIDs := make([]int64, 0, options.limit)
+	scanned := 0
+	moreCandidates := false
+	for len(digestEntries) < options.limit && scanned < maximumDigestCandidates {
+		remainingScan := maximumDigestCandidates - scanned
+		requestLimit := min(pageSize, remainingScan)
+		filter := &client.Filter{
+			Status:         client.EntryStatusUnread,
+			Limit:          requestLimit,
+			Offset:         scanned,
+			Order:          "published_at",
+			Direction:      "asc",
+			PublishedAfter: options.since,
+			FeedID:         options.feedID,
+		}
+		entries, err := s.client.EntriesContext(ctx, filter)
+		if err != nil || entries == nil {
+			return toolErrorResult("failed to fetch unread digest")
+		}
+		pageCount := len(entries.Entries)
+		if pageCount == 0 {
+			break
+		}
+		scanned += pageCount
+		moreCandidates = scanned < entries.Total
+
+		page := append(client.Entries(nil), entries.Entries...)
+		sort.SliceStable(page, func(i, j int) bool {
+			if page[i] == nil {
+				return false
+			}
+			if page[j] == nil {
+				return true
+			}
+			if page[i].Date.Equal(page[j].Date) {
+				return page[i].ID < page[j].ID
+			}
+
+			return page[i].Date.Before(page[j].Date)
+		})
+		for _, entry := range page {
+			if entry == nil || !digestCategoryAllowed(entry, options.categoryIDs, options.excludeCategoryIDs) {
+				continue
+			}
+			digestEntries = append(digestEntries, toMCPDigestEntry(entry))
+			ackEntryIDs = append(ackEntryIDs, entry.ID)
+			if len(digestEntries) == options.limit {
+				break
+			}
+		}
+		if scanned >= entries.Total || pageCount < requestLimit {
+			break
+		}
+		if !filterCategories {
+			break
+		}
+	}
+	scanTruncated := len(digestEntries) < options.limit && scanned >= maximumDigestCandidates && moreCandidates
+
+	return marshalToolResult(MCPUnreadDigest{
+		Entries:       digestEntries,
+		AckEntryIDs:   ackEntryIDs,
+		ScanTruncated: scanTruncated,
+	})
+}
+
+func digestCategoryAllowed(entry *client.Entry, included, excluded []int64) bool {
+	var categoryID int64
+	if entry.Feed != nil && entry.Feed.Category != nil {
+		categoryID = entry.Feed.Category.ID
+	}
+	if len(included) > 0 && !containsInt64(included, categoryID) {
+		return false
+	}
+
+	return !containsInt64(excluded, categoryID)
+}
+
+func containsInt64(values []int64, target int64) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *MinifluxServer) GetEntry(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

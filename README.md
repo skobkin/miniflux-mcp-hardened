@@ -10,7 +10,7 @@ This project is a hardened fork of [`tssujt/miniflux-mcp`](https://github.com/ts
 
 | Area | Upstream | Hardened fork |
 | --- | --- | --- |
-| Tool surface | 40+ API-oriented tools | 13 default read tools and 3 individually opt-in writes |
+| Tool surface | 40+ API-oriented tools | 14 default read tools and 3 individually opt-in writes |
 | Feeds | Read, create, update, delete, refresh, bulk operations, and icon access | Sanitized reads; only single-feed refresh can be enabled |
 | Entries | Read, save, fetch original content, bulk marking, starring, and status changes including `removed` | Bounded sanitized reads; only single-entry starring and `read`/`unread` changes can be enabled |
 | Categories | Read, create, update, delete, refresh, and bulk marking | Sanitized reads only |
@@ -41,6 +41,7 @@ The removed capabilities are intentional security boundaries, not missing API-co
 | `get_feed_entries` | ✅ | ✅ | List entries from one feed. |
 | `get_feed_entry` | ✅ | ✅ | Get one entry from a feed, including article content. |
 | `get_entries` | ✅ | ✅ | List entries with optional status, scope, time, search, starred, and ordering filters. |
+| `get_unread_digest` | ✅ | ❌ | Get a bounded oldest-first unread batch with content and acknowledgement IDs. |
 | `get_entry` | ✅ | ✅ | Get one entry, including article content. |
 | `get_categories` | ✅ | ✅ | List sanitized categories. |
 | `get_category_feeds` | ✅ | ✅ | List sanitized feeds in one category. |
@@ -54,6 +55,8 @@ The removed capabilities are intentional security boundaries, not missing API-co
 | `refresh_feed` | ❌ | ✅ | Request a refresh of one explicitly selected feed. |
 
 Entry collections default to 50 results and reject limits above 100. IDs and Unix timestamp filters must be positive integers; offsets must be non-negative. Categories expose identity, visibility, and feed/unread counts; feeds expose identity, public site metadata, language, known check timestamps, disabled/parsing state, and a sanitized category. Unknown check times are omitted. Entry lists expose article metadata, status, tags, and sanitized feed identity without article bodies; single-entry responses add content, comments URL, and creation time.
+
+`get_unread_digest` returns Miniflux-provided article content with an oldest-first unread queue. After successful downstream processing, pass only its `ack_entry_ids` to the separately allowlisted bulk status tool. `since` is an optional caller-owned Unix timestamp applied to `published_at`; no timezone or day-boundary policy is invented. Feed and category filters intersect, exclusions win, and category filtering scans at most 1,000 unread candidates to fill the bounded batch. `scan_truncated` reports when that defensive scan cap prevents a full batch.
 
 Subscription `feed_url`, Miniflux user IDs, credentials, cookies, fetch/proxy settings, integration URLs, share codes, internal hashes, icons, and enclosures are intentionally absent. Version and counter tools return compact purpose-specific objects.
 

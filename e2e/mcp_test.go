@@ -279,7 +279,7 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 	for _, tool := range listed.Tools {
 		toolNames = append(toolNames, tool.Name)
 	}
-	for _, name := range []string{"get_version", "get_categories", "get_entries", "get_entry"} {
+	for _, name := range []string{"get_version", "get_categories", "get_entries", "get_entry", "get_unread_digest"} {
 		if !slices.Contains(toolNames, name) {
 			t.Fatalf("tools/list did not include %q", name)
 		}
@@ -321,6 +321,22 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 	}
 	if len(categories) == 0 {
 		t.Fatal("get_categories returned no categories")
+	}
+
+	digestText, err := client.callTool("get_unread_digest", map[string]any{})
+	if err != nil {
+		t.Fatalf("get unread digest: %v", err)
+	}
+	var digest struct {
+		Entries       []json.RawMessage `json:"entries"`
+		AckEntryIDs   []int64           `json:"ack_entry_ids"`
+		ScanTruncated bool              `json:"scan_truncated"`
+	}
+	if err := json.Unmarshal([]byte(digestText), &digest); err != nil {
+		t.Fatalf("decode unread digest: %v", err)
+	}
+	if digest.Entries == nil || digest.AckEntryIDs == nil {
+		t.Fatalf("get_unread_digest returned null collections: %s", digestText)
 	}
 }
 
@@ -462,7 +478,7 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 	for _, tool := range listed.Tools {
 		toolNames = append(toolNames, tool.Name)
 	}
-	for _, name := range []string{"get_version", "get_categories", "get_entries"} {
+	for _, name := range []string{"get_version", "get_categories", "get_entries", "get_unread_digest"} {
 		if !slices.Contains(toolNames, name) {
 			t.Fatalf("tools/list did not include %q", name)
 		}

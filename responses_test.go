@@ -17,14 +17,15 @@ import (
 const sentinelSecret = "SENTINEL-SECRET-DO-NOT-EXPOSE"
 
 type fakeMinifluxClient struct {
-	feeds       client.Feeds
-	entries     *client.EntryResultSet
-	entry       *client.Entry
-	feedsError  error
-	entryError  error
-	nilVersion  bool
-	nilCounters bool
-	lastContext context.Context
+	feeds        client.Feeds
+	entries      *client.EntryResultSet
+	entry        *client.Entry
+	feedsError   error
+	entryError   error
+	nilVersion   bool
+	nilCounters  bool
+	lastContext  context.Context
+	entryFilters []*client.Filter
 }
 
 func (f *fakeMinifluxClient) HealthcheckContext(ctx context.Context) error {
@@ -93,8 +94,14 @@ func (f *fakeMinifluxClient) EntryContext(ctx context.Context, _ int64) (*client
 	return f.entry, f.entryError
 }
 
-func (f *fakeMinifluxClient) EntriesContext(ctx context.Context, _ *client.Filter) (*client.EntryResultSet, error) {
+func (f *fakeMinifluxClient) EntriesContext(ctx context.Context, filter *client.Filter) (*client.EntryResultSet, error) {
 	f.lastContext = ctx
+	if filter != nil {
+		filterCopy := *filter
+		filterCopy.Statuses = append([]string(nil), filter.Statuses...)
+		filterCopy.Tags = append([]string(nil), filter.Tags...)
+		f.entryFilters = append(f.entryFilters, &filterCopy)
+	}
 
 	return f.entries, f.entryError
 }
