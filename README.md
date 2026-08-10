@@ -124,18 +124,14 @@ Codex, HTTP:
 codex mcp add miniflux --url http://127.0.0.1:8080/mcp --bearer-token-env-var MCP_AUTH_TOKEN
 ```
 
-For project-scoped clients that support `.mcp.json`, choose either transport. This STDIO example launches the published container:
+For project-scoped clients that support `.mcp.json`, choose either transport. This STDIO example launches the local binary:
 
 ```json
 {
   "mcpServers": {
     "miniflux": {
       "type": "stdio",
-      "command": "docker",
-      "args": ["run", "-i", "--rm", "--read-only", "--cap-drop=ALL",
-        "--security-opt=no-new-privileges", "-e", "MCP_TRANSPORT=stdio",
-        "-e", "MINIFLUX_URL", "-e", "MINIFLUX_API_KEY",
-        "skobkin/miniflux-mcp-hardened:latest"],
+      "command": "/path/to/miniflux-mcp",
       "env": {
         "MINIFLUX_URL": "${MINIFLUX_URL}",
         "MINIFLUX_API_KEY": "${MINIFLUX_API_KEY}"
