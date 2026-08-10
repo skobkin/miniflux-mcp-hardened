@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"unicode/utf8"
 
@@ -343,11 +344,10 @@ func (s *MinifluxServer) GetUnreadDigest(ctx context.Context, request mcp.CallTo
 		pageSize = maximumEntryLimit
 	}
 
-	digestEntries := make([]MCPDigestEntry, 0, options.limit)
-	ackEntryIDs := make([]int64, 0, options.limit)
+	digestCandidates := make(client.Entries, 0, options.limit)
 	scanned := 0
 	moreCandidates := false
-	for len(digestEntries) < options.limit && scanned < maximumDigestCandidates {
+	for len(digestCandidates) < options.limit && scanned < maximumDigestCandidates {
 		remainingScan := maximumDigestCandidates - scanned
 		requestLimit := min(pageSize, remainingScan)
 		filter := &client.Filter{
@@ -370,29 +370,11 @@ func (s *MinifluxServer) GetUnreadDigest(ctx context.Context, request mcp.CallTo
 		scanned += pageCount
 		moreCandidates = scanned < entries.Total
 
-		page := append(client.Entries(nil), entries.Entries...)
-		sort.SliceStable(page, func(i, j int) bool {
-			if page[i] == nil {
-				return false
-			}
-			if page[j] == nil {
-				return true
-			}
-			if page[i].Date.Equal(page[j].Date) {
-				return page[i].ID < page[j].ID
-			}
-
-			return page[i].Date.Before(page[j].Date)
-		})
-		for _, entry := range page {
+		for _, entry := range entries.Entries {
 			if entry == nil || !digestCategoryAllowed(entry, options.categoryIDs, options.excludeCategoryIDs) {
 				continue
 			}
-			digestEntries = append(digestEntries, toMCPDigestEntry(entry))
-			ackEntryIDs = append(ackEntryIDs, entry.ID)
-			if len(digestEntries) == options.limit {
-				break
-			}
+			digestCandidates = append(digestCandidates, entry)
 		}
 		if scanned >= entries.Total || pageCount < requestLimit {
 			break
@@ -401,7 +383,23 @@ func (s *MinifluxServer) GetUnreadDigest(ctx context.Context, request mcp.CallTo
 			break
 		}
 	}
-	scanTruncated := len(digestEntries) < options.limit && scanned >= maximumDigestCandidates && moreCandidates
+	scanTruncated := len(digestCandidates) < options.limit && scanned >= maximumDigestCandidates && moreCandidates
+	sort.Slice(digestCandidates, func(i, j int) bool {
+		if digestCandidates[i].Date.Equal(digestCandidates[j].Date) {
+			return digestCandidates[i].ID < digestCandidates[j].ID
+		}
+
+		return digestCandidates[i].Date.Before(digestCandidates[j].Date)
+	})
+	if len(digestCandidates) > options.limit {
+		digestCandidates = digestCandidates[:options.limit]
+	}
+	digestEntries := make([]MCPDigestEntry, 0, len(digestCandidates))
+	ackEntryIDs := make([]int64, 0, len(digestCandidates))
+	for _, entry := range digestCandidates {
+		digestEntries = append(digestEntries, toMCPDigestEntry(entry))
+		ackEntryIDs = append(ackEntryIDs, entry.ID)
+	}
 
 	return marshalToolResult(MCPUnreadDigest{
 		Entries:       digestEntries,
@@ -415,21 +413,11 @@ func digestCategoryAllowed(entry *client.Entry, included, excluded []int64) bool
 	if entry.Feed != nil && entry.Feed.Category != nil {
 		categoryID = entry.Feed.Category.ID
 	}
-	if len(included) > 0 && !containsInt64(included, categoryID) {
+	if len(included) > 0 && !slices.Contains(included, categoryID) {
 		return false
 	}
 
-	return !containsInt64(excluded, categoryID)
-}
-
-func containsInt64(values []int64, target int64) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-
-	return false
+	return !slices.Contains(excluded, categoryID)
 }
 
 func (s *MinifluxServer) GetEntry(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

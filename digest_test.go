@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,63 @@ func TestGetUnreadDigestBuildsBoundedOrderedResponse(t *testing.T) {
 	filter := fake.entryFilters[0]
 	if filter.Status != client.EntryStatusUnread || filter.Limit != maximumEntryLimit || filter.Offset != 0 || filter.Order != "published_at" || filter.Direction != "asc" || filter.PublishedAfter != 1700000000 || filter.FeedID != 42 {
 		t.Fatalf("Miniflux filter = %#v", filter)
+	}
+}
+
+type pagedDigestClient struct {
+	*fakeMinifluxClient
+	pages []*client.EntryResultSet
+	next  int
+}
+
+func (f *pagedDigestClient) EntriesContext(ctx context.Context, filter *client.Filter) (*client.EntryResultSet, error) {
+	f.lastContext = ctx
+	filterCopy := *filter
+	f.entryFilters = append(f.entryFilters, &filterCopy)
+	if f.next >= len(f.pages) {
+		return &client.EntryResultSet{}, nil
+	}
+	page := f.pages[f.next]
+	f.next++
+
+	return page, nil
+}
+
+func TestGetUnreadDigestSortsAcrossCategoryPages(t *testing.T) {
+	publishedAt := time.Date(2026, time.August, 10, 10, 0, 0, 0, time.UTC)
+	pages := make([]*client.EntryResultSet, 2)
+	for pageIndex := range pages {
+		entries := make(client.Entries, maximumEntryLimit)
+		for entryIndex := range entries {
+			entries[entryIndex] = &client.Entry{
+				ID:   int64(1000 + pageIndex*maximumEntryLimit + entryIndex),
+				Date: publishedAt,
+				Feed: &client.Feed{Category: &client.Category{ID: 2}},
+			}
+		}
+		pages[pageIndex] = &client.EntryResultSet{Total: 2 * maximumEntryLimit, Entries: entries}
+	}
+	pages[0].Entries[maximumEntryLimit-1] = &client.Entry{ID: 20, Date: publishedAt, Feed: &client.Feed{Category: &client.Category{ID: 1}}}
+	pages[1].Entries[maximumEntryLimit-1] = &client.Entry{ID: 10, Date: publishedAt, Feed: &client.Feed{Category: &client.Category{ID: 1}}}
+	fake := &pagedDigestClient{fakeMinifluxClient: &fakeMinifluxClient{}, pages: pages}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+		"limit":        float64(2),
+		"category_ids": []interface{}{float64(1)},
+	}}}
+
+	result, err := (&MinifluxServer{client: fake}).GetUnreadDigest(context.Background(), request)
+	if err != nil || result.IsError {
+		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
+	}
+	var digest MCPUnreadDigest
+	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
+		t.Fatalf("decode digest: %v", err)
+	}
+	if !reflect.DeepEqual(digest.AckEntryIDs, []int64{10, 20}) {
+		t.Fatalf("ack_entry_ids = %v, want [10 20]", digest.AckEntryIDs)
+	}
+	if len(digest.Entries) != 2 || digest.Entries[0].ID != 10 || digest.Entries[1].ID != 20 {
+		t.Fatalf("digest entries = %#v", digest.Entries)
 	}
 }
 
