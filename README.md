@@ -186,7 +186,7 @@ The scratch image uses an exec-form `HEALTHCHECK` that runs `/miniflux-mcp healt
 
 ## Continuous integration and releases
 
-Woodpecker CI runs formatting, lint, vet, unit, race, build, and end-to-end checks for pushes and pull requests targeting `main`. The end-to-end suite covers both STDIO and authenticated Streamable HTTP.
+Woodpecker CI runs formatting, lint, vet, unit, race, build, end-to-end, and dry-run container image build checks for pushes and pull requests targeting `main`. The end-to-end suite covers both STDIO and authenticated Streamable HTTP.
 
 Tags matching `v*` run the same checks before publishing a static Linux AMD64 archive and checksum to [Forgejo](https://git.skobk.in/skobkin/miniflux-mcp-hardened/releases) and versioned [`skobkin/miniflux-mcp-hardened`](https://hub.docker.com/r/skobkin/miniflux-mcp-hardened) images to Docker Hub.
 
