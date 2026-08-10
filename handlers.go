@@ -27,6 +27,13 @@ const (
 	maximumFreeFormStringLength = 4096
 )
 
+var (
+	entryFilterStatuses  = []string{"read", "unread", "removed"}
+	entryUpdateStatuses  = []string{"read", "unread"}
+	entryOrderValues     = []string{"id", "status", "changed_at", "published_at", "created_at", "category_title", "category_id", "title", "author"}
+	entryDirectionValues = []string{"asc", "desc"}
+)
+
 func toolErrorResult(message string) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultError(message), nil
 }
@@ -146,6 +153,37 @@ func enumStringArgument(arguments map[string]interface{}, name string, required 
 	return enumStringValue(value, name, allowed...)
 }
 
+func enumStringArrayArgument(arguments map[string]interface{}, name string, maximumItems int, allowed ...string) ([]string, *mcp.CallToolResult) {
+	value, exists := arguments[name]
+	if !exists {
+		return nil, nil
+	}
+	items, ok := value.([]interface{})
+	if !ok {
+		return nil, mcp.NewToolResultError(fmt.Sprintf("%s must be an array of strings", name))
+	}
+	if len(items) > maximumItems {
+		return nil, mcp.NewToolResultError(fmt.Sprintf("%s must contain at most %d items", name, maximumItems))
+	}
+
+	result := make([]string, 0, len(items))
+	seen := make(map[string]int, len(items))
+	for index, item := range items {
+		path := fmt.Sprintf("%s[%d]", name, index)
+		value, validationResult := enumStringValue(item, path, allowed...)
+		if validationResult != nil {
+			return nil, validationResult
+		}
+		if firstIndex, duplicate := seen[value]; duplicate {
+			return nil, mcp.NewToolResultError(fmt.Sprintf("%s duplicates %s[%d]; values must be unique", path, name, firstIndex))
+		}
+		seen[value] = index
+		result = append(result, value)
+	}
+
+	return result, nil
+}
+
 func enumStringValue(value interface{}, name string, allowed ...string) (string, *mcp.CallToolResult) {
 	parsed, ok := value.(string)
 	if !ok {
@@ -217,21 +255,13 @@ func (s *MinifluxServer) GetFeed(ctx context.Context, request mcp.CallToolReques
 func parseEntryFilter(arguments map[string]interface{}) (*client.Filter, *mcp.CallToolResult) {
 	filter := &client.Filter{Limit: defaultEntryLimit}
 
-	if rawStatuses, exists := arguments["statuses"]; exists {
-		statuses, ok := rawStatuses.([]interface{})
-		if !ok {
-			return nil, mcp.NewToolResultError("statuses must be an array of strings")
-		}
-		for index, rawStatus := range statuses {
-			status, result := enumStringValue(rawStatus, fmt.Sprintf("statuses[%d]", index), "read", "unread", "removed")
-			if result != nil {
-				return nil, result
-			}
-			filter.Statuses = append(filter.Statuses, status)
-		}
+	statuses, result := enumStringArrayArgument(arguments, "statuses", len(entryFilterStatuses), entryFilterStatuses...)
+	if result != nil {
+		return nil, result
 	}
+	filter.Statuses = statuses
 	if rawStatus, exists := arguments["status"]; exists && len(filter.Statuses) == 0 {
-		status, result := enumStringValue(rawStatus, "status", "read", "unread", "removed")
+		status, result := enumStringValue(rawStatus, "status", entryFilterStatuses...)
 		if result != nil {
 			return nil, result
 		}
@@ -296,14 +326,14 @@ func parseEntryFilter(arguments map[string]interface{}) (*client.Filter, *mcp.Ca
 		}
 	}
 	if value, exists := arguments["order"]; exists {
-		order, result := enumStringValue(value, "order", "id", "status", "changed_at", "published_at", "created_at", "category_title", "category_id", "title", "author")
+		order, result := enumStringValue(value, "order", entryOrderValues...)
 		if result != nil {
 			return nil, result
 		}
 		filter.Order = order
 	}
 	if value, exists := arguments["direction"]; exists {
-		direction, result := enumStringValue(value, "direction", "asc", "desc")
+		direction, result := enumStringValue(value, "direction", entryDirectionValues...)
 		if result != nil {
 			return nil, result
 		}
@@ -664,7 +694,7 @@ func (s *MinifluxServer) UpdateEntryStatus(ctx context.Context, request mcp.Call
 	if result != nil {
 		return result, nil
 	}
-	status, result := enumStringArgument(arguments, "status", true, "read", "unread")
+	status, result := enumStringArgument(arguments, "status", true, entryUpdateStatuses...)
 	if result != nil {
 		return result, nil
 	}
@@ -687,7 +717,7 @@ func (s *MinifluxServer) UpdateEntriesStatus(ctx context.Context, request mcp.Ca
 	if len(entryIDs) == 0 {
 		return toolErrorResult("entry_ids must contain at least one ID")
 	}
-	status, result := enumStringArgument(arguments, "status", true, client.EntryStatusRead, client.EntryStatusUnread)
+	status, result := enumStringArgument(arguments, "status", true, entryUpdateStatuses...)
 	if result != nil {
 		return result, nil
 	}
@@ -726,7 +756,7 @@ func (s *MinifluxServer) GetCategories(ctx context.Context, _ mcp.CallToolReques
 func scopedFilter(arguments map[string]interface{}) (*client.Filter, *mcp.CallToolResult) {
 	filter := &client.Filter{Limit: defaultEntryLimit}
 	if rawStatus, exists := arguments["status"]; exists {
-		status, result := enumStringValue(rawStatus, "status", "read", "unread", "removed")
+		status, result := enumStringValue(rawStatus, "status", entryFilterStatuses...)
 		if result != nil {
 			return nil, result
 		}

@@ -139,6 +139,8 @@ func TestParseEntryFilterValidationMessages(t *testing.T) {
 		{name: "statuses outer type", arguments: map[string]interface{}{"statuses": "read"}, wantMessage: "statuses must be an array of strings"},
 		{name: "statuses element type", arguments: map[string]interface{}{"statuses": []interface{}{"read", []interface{}{"unread"}}}, wantMessage: "statuses[1] must be a string"},
 		{name: "statuses element value", arguments: map[string]interface{}{"statuses": []interface{}{"read", "pending"}}, wantMessage: "statuses[1] must be one of: read, unread, removed"},
+		{name: "statuses duplicate", arguments: map[string]interface{}{"statuses": []interface{}{"read", "read"}}, wantMessage: "statuses[1] duplicates statuses[0]; values must be unique"},
+		{name: "statuses too many", arguments: map[string]interface{}{"statuses": []interface{}{"read", "unread", "removed", "read"}}, wantMessage: "statuses must contain at most 3 items"},
 		{name: "status type", arguments: map[string]interface{}{"status": true}, wantMessage: "status must be a string"},
 		{name: "status value", arguments: map[string]interface{}{"status": "pending"}, wantMessage: "status must be one of: read, unread, removed"},
 		{name: "order type", arguments: map[string]interface{}{"order": true}, wantMessage: "order must be a string"},

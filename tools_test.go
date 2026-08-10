@@ -166,6 +166,36 @@ func TestEntryLimitSchemasMatchRuntimePolicy(t *testing.T) {
 	}
 }
 
+func TestEntryEnumSchemasMatchRuntimePolicy(t *testing.T) {
+	for _, definition := range (&MinifluxServer{}).readToolDefinitions() {
+		if definition.Tool.Name != "get_entries" {
+			continue
+		}
+
+		properties := definition.Tool.InputSchema.Properties
+		statuses := properties["statuses"].(map[string]interface{})
+		if statuses["maxItems"] != len(entryFilterStatuses) || statuses["uniqueItems"] != true {
+			t.Fatalf("statuses schema = %#v", statuses)
+		}
+		statusItems := statuses["items"].(map[string]interface{})
+		if !reflect.DeepEqual(statusItems["enum"], entryFilterStatuses) {
+			t.Errorf("statuses enum = %v, want %v", statusItems["enum"], entryFilterStatuses)
+		}
+		if !reflect.DeepEqual(properties["status"].(map[string]interface{})["enum"], entryFilterStatuses) {
+			t.Errorf("status enum does not match runtime values")
+		}
+		if !reflect.DeepEqual(properties["order"].(map[string]interface{})["enum"], entryOrderValues) {
+			t.Errorf("order enum does not match runtime values")
+		}
+		if !reflect.DeepEqual(properties["direction"].(map[string]interface{})["enum"], entryDirectionValues) {
+			t.Errorf("direction enum does not match runtime values")
+		}
+
+		return
+	}
+	t.Fatal("get_entries definition not found")
+}
+
 func TestDigestLimitSchemaMatchesRuntimePolicy(t *testing.T) {
 	for _, definition := range (&MinifluxServer{}).readToolDefinitions() {
 		if definition.Tool.Name != "get_unread_digest" {

@@ -133,7 +133,8 @@ For project-scoped clients that support `.mcp.json`, choose either transport. Th
       "type": "stdio",
       "command": "docker",
       "args": ["run", "-i", "--rm", "--read-only", "--cap-drop=ALL",
-        "--security-opt=no-new-privileges", "-e", "MINIFLUX_URL", "-e", "MINIFLUX_API_KEY",
+        "--security-opt=no-new-privileges", "-e", "MCP_TRANSPORT=stdio",
+        "-e", "MINIFLUX_URL", "-e", "MINIFLUX_API_KEY",
         "skobkin/miniflux-mcp-hardened:latest"],
       "env": {
         "MINIFLUX_URL": "${MINIFLUX_URL}",

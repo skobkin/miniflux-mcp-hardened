@@ -59,21 +59,31 @@ func contentOffsetProperty() map[string]interface{} {
 	}
 }
 
+func enumStringProperty(description string, allowed []string) map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "string",
+		"description": description,
+		"enum":        allowed,
+	}
+}
+
+func enumStringArrayProperty(description string, allowed []string) map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "array",
+		"description": description,
+		"maxItems":    len(allowed),
+		"uniqueItems": true,
+		"items": map[string]interface{}{
+			"type": "string",
+			"enum": allowed,
+		},
+	}
+}
+
 func entryFilterProperties() map[string]interface{} {
 	return map[string]interface{}{
-		"status": map[string]interface{}{
-			"type":        "string",
-			"description": "Filter by entry status",
-			"enum":        []string{"read", "unread", "removed"},
-		},
-		"statuses": map[string]interface{}{
-			"type":        "array",
-			"description": "Filter by multiple entry statuses; takes precedence over status",
-			"items": map[string]interface{}{
-				"type": "string",
-				"enum": []string{"read", "unread", "removed"},
-			},
-		},
+		"status":           enumStringProperty("Filter by entry status", entryFilterStatuses),
+		"statuses":         enumStringArrayProperty("Filter by multiple entry statuses; takes precedence over status", entryFilterStatuses),
 		"feed_id":          idProperty("Filter by feed ID"),
 		"category_id":      idProperty("Filter by category ID"),
 		"limit":            entryLimitProperty(),
@@ -86,16 +96,8 @@ func entryFilterProperties() map[string]interface{} {
 		"after_entry_id":   idProperty("Return entries with an ID greater than this value"),
 		"search":           map[string]interface{}{"type": "string", "maxLength": maximumFreeFormStringLength, "description": "Search entry title and content"},
 		"starred":          map[string]interface{}{"type": "boolean", "description": "Filter by starred state"},
-		"order": map[string]interface{}{
-			"type":        "string",
-			"description": "Field used to sort entries",
-			"enum":        []string{"id", "status", "changed_at", "published_at", "created_at", "category_title", "category_id", "title", "author"},
-		},
-		"direction": map[string]interface{}{
-			"type":        "string",
-			"description": "Sort direction",
-			"enum":        []string{"asc", "desc"},
-		},
+		"order":            enumStringProperty("Field used to sort entries", entryOrderValues),
+		"direction":        enumStringProperty("Sort direction", entryDirectionValues),
 		"globally_visible": map[string]interface{}{"type": "boolean", "description": "Restrict results to globally visible entries when true"},
 	}
 }
@@ -124,13 +126,9 @@ func entryIDsProperty() map[string]interface{} {
 func scopedEntryProperties(scopeName string) map[string]interface{} {
 	properties := map[string]interface{}{
 		scopeName: idProperty("The ID used to scope the entry query"),
-		"status": map[string]interface{}{
-			"type":        "string",
-			"description": "Filter by entry status",
-			"enum":        []string{"read", "unread", "removed"},
-		},
-		"limit":  entryLimitProperty(),
-		"offset": map[string]interface{}{"type": "integer", "minimum": 0, "description": "Pagination offset"},
+		"status":  enumStringProperty("Filter by entry status", entryFilterStatuses),
+		"limit":   entryLimitProperty(),
+		"offset":  map[string]interface{}{"type": "integer", "minimum": 0, "description": "Pagination offset"},
 	}
 
 	return properties
@@ -176,19 +174,11 @@ func (s *MinifluxServer) writeToolDefinitions() []ToolDefinition {
 	return []ToolDefinition{
 		{objectTool("update_entry_status", "Mark one entry read or unread", map[string]interface{}{
 			"entry_id": idProperty("The entry ID"),
-			"status": map[string]interface{}{
-				"type":        "string",
-				"description": "New entry status",
-				"enum":        []string{"read", "unread"},
-			},
+			"status":   enumStringProperty("New entry status", entryUpdateStatuses),
 		}, "entry_id", "status"), s.UpdateEntryStatus},
 		{objectTool("update_entries_status", "Mark explicitly selected entries read or unread", map[string]interface{}{
 			"entry_ids": entryIDsProperty(),
-			"status": map[string]interface{}{
-				"type":        "string",
-				"description": "New entry status",
-				"enum":        []string{"read", "unread"},
-			},
+			"status":    enumStringProperty("New entry status", entryUpdateStatuses),
 		}, "entry_ids", "status"), s.UpdateEntriesStatus},
 		{objectTool("toggle_starred", "Toggle the starred state of one entry", map[string]interface{}{"entry_id": idProperty("The entry ID")}, "entry_id"), s.ToggleStarred},
 		{objectTool("refresh_feed", "Request a refresh of one feed", map[string]interface{}{"feed_id": idProperty("The feed ID")}, "feed_id"), s.RefreshFeed},
