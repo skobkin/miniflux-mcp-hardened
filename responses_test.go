@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"miniflux.app/v2/client"
@@ -330,6 +331,61 @@ func TestEntryDetailPagesLargeMultibyteContent(t *testing.T) {
 	}
 	if reconstructed.String() != content {
 		t.Fatal("paged content did not reconstruct the original article")
+	}
+}
+
+func TestEntryDetailReturnsLargestUTF8ChunkWithinBudget(t *testing.T) {
+	entry := secretEntry()
+	entry.Content = strings.Repeat("界", maximumContentResultBytes)
+	server := &MinifluxServer{client: &fakeMinifluxClient{entry: entry}}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+		"entry_id": float64(entry.ID),
+	}}}
+
+	result, err := server.GetEntry(context.Background(), request)
+	if err != nil || result.IsError {
+		t.Fatalf("GetEntry = %#v, %v", result, err)
+	}
+	var detail MCPEntryDetail
+	if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
+		t.Fatalf("decode entry detail: %v", err)
+	}
+	if detail.ContentComplete || detail.NextContentOffset == nil {
+		t.Fatalf("paging metadata = %#v, want incomplete chunk", detail)
+	}
+	_, runeBytes := utf8.DecodeRuneInString(entry.Content[*detail.NextContentOffset:])
+	tooLarge, err := marshalCompactToolResult(toMCPEntryDetail(entry, 0, *detail.NextContentOffset+runeBytes))
+	if err != nil {
+		t.Fatalf("encode next larger chunk: %v", err)
+	}
+	size, err := encodedToolResultSize(tooLarge)
+	if err != nil {
+		t.Fatalf("measure next larger chunk: %v", err)
+	}
+	if size <= maximumContentResultBytes {
+		t.Fatalf("next UTF-8 chunk size = %d, want > %d", size, maximumContentResultBytes)
+	}
+}
+
+func TestEntryDetailNormalizesInvalidUTF8BeforePaging(t *testing.T) {
+	entry := secretEntry()
+	entry.Content = "before\xffafter"
+	server := &MinifluxServer{client: &fakeMinifluxClient{entry: entry}}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+		"entry_id": float64(entry.ID),
+	}}}
+
+	result, err := server.GetEntry(context.Background(), request)
+	if err != nil || result.IsError {
+		t.Fatalf("GetEntry = %#v, %v", result, err)
+	}
+	var detail MCPEntryDetail
+	if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
+		t.Fatalf("decode entry detail: %v", err)
+	}
+	want := "before\ufffdafter"
+	if detail.Content != want || detail.ContentTotalBytes != len(want) || !detail.ContentComplete {
+		t.Fatalf("detail = %#v, want normalized complete content", detail)
 	}
 }
 

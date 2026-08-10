@@ -8,6 +8,7 @@ import (
 	"math"
 	"slices"
 	"sort"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -488,6 +489,7 @@ func buildUnreadDigest(entries client.Entries, excerptLimit int, scanTruncated, 
 	digestEntries := make([]MCPDigestEntry, 0, len(entries))
 	ackEntryIDs := make([]int64, 0, len(entries))
 	for _, entry := range entries {
+		entry = entryWithValidUTF8Content(entry)
 		excerpt := utf8Prefix(entry.Content, excerptLimit)
 		digestEntries = append(digestEntries, toMCPDigestEntry(entry, excerpt))
 		ackEntryIDs = append(ackEntryIDs, entry.ID)
@@ -502,6 +504,7 @@ func buildUnreadDigest(entries client.Entries, excerptLimit int, scanTruncated, 
 }
 
 func utf8Prefix(value string, maximumBytes int) string {
+	value = validUTF8(value)
 	if maximumBytes >= len(value) {
 		return value
 	}
@@ -513,6 +516,24 @@ func utf8Prefix(value string, maximumBytes int) string {
 	}
 
 	return value[:maximumBytes]
+}
+
+func validUTF8(value string) string {
+	if utf8.ValidString(value) {
+		return value
+	}
+
+	return strings.ToValidUTF8(value, string(utf8.RuneError))
+}
+
+func entryWithValidUTF8Content(entry *client.Entry) *client.Entry {
+	if entry == nil || utf8.ValidString(entry.Content) {
+		return entry
+	}
+	copy := *entry
+	copy.Content = validUTF8(entry.Content)
+
+	return &copy
 }
 
 func digestCategoryAllowed(entry *client.Entry, included, excluded []int64) bool {
@@ -549,27 +570,13 @@ func (s *MinifluxServer) GetEntry(ctx context.Context, request mcp.CallToolReque
 }
 
 func boundedEntryDetailResult(entry *client.Entry, contentOffset int64) (*mcp.CallToolResult, error) {
+	entry = entryWithValidUTF8Content(entry)
 	if contentOffset > int64(len(entry.Content)) {
 		return toolErrorResult("content_offset exceeds content length")
 	}
 	offset := int(contentOffset)
 	if offset < len(entry.Content) && !utf8.RuneStart(entry.Content[offset]) {
 		return toolErrorResult("content_offset must be a UTF-8 boundary")
-	}
-
-	baseResult, err := marshalCompactToolResult(toMCPEntryDetail(entry, offset, offset))
-	if err != nil {
-		return baseResult, err
-	}
-	baseSize, err := encodedToolResultSize(baseResult)
-	if err != nil {
-		return toolErrorResult("failed to encode response")
-	}
-	if baseSize > maximumContentResultBytes {
-		return toolErrorResult("entry metadata exceeds response size limit")
-	}
-	if offset == len(entry.Content) {
-		return baseResult, nil
 	}
 
 	fullResult, err := marshalCompactToolResult(toMCPEntryDetail(entry, offset, len(entry.Content)))
@@ -584,16 +591,31 @@ func boundedEntryDetailResult(entry *client.Entry, contentOffset int64) (*mcp.Ca
 		return fullResult, nil
 	}
 
-	bestResult := baseResult
-	bestEnd := offset
-	low, high := offset+1, len(entry.Content)-1
+	_, firstRuneBytes := utf8.DecodeRuneInString(entry.Content[offset:])
+	firstEnd := offset + firstRuneBytes
+	minimumResult, err := marshalCompactToolResult(toMCPEntryDetail(entry, offset, firstEnd))
+	if err != nil {
+		return minimumResult, err
+	}
+	minimumSize, err := encodedToolResultSize(minimumResult)
+	if err != nil {
+		return toolErrorResult("failed to encode response")
+	}
+	if minimumSize > maximumContentResultBytes {
+		return toolErrorResult("entry metadata leaves no room for content")
+	}
+
+	bestResult := minimumResult
+	bestEnd := firstEnd
+	low, high := firstEnd+1, len(entry.Content)-1
 	for low <= high {
-		candidateEnd := low + (high-low)/2
+		midpoint := low + (high-low)/2
+		candidateEnd := midpoint
 		for candidateEnd > offset && candidateEnd < len(entry.Content) && !utf8.RuneStart(entry.Content[candidateEnd]) {
 			candidateEnd--
 		}
 		if candidateEnd <= bestEnd {
-			low++
+			low = midpoint + 1
 
 			continue
 		}
@@ -608,13 +630,10 @@ func boundedEntryDetailResult(entry *client.Entry, contentOffset int64) (*mcp.Ca
 		if size <= maximumContentResultBytes {
 			bestResult = result
 			bestEnd = candidateEnd
-			low = candidateEnd + 1
+			low = midpoint + 1
 		} else {
 			high = candidateEnd - 1
 		}
-	}
-	if bestEnd == offset && offset < len(entry.Content) {
-		return toolErrorResult("entry metadata leaves no room for content")
 	}
 
 	return bestResult, nil

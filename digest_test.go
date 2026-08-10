@@ -304,6 +304,29 @@ func TestGetUnreadDigestSharesExcerptBudgetAcrossMaximumBatch(t *testing.T) {
 	}
 }
 
+func TestGetUnreadDigestNormalizesInvalidUTF8Content(t *testing.T) {
+	entry := &client.Entry{ID: 1, Content: "before\xffafter"}
+	fake := &fakeMinifluxClient{entries: &client.EntryResultSet{Total: 1, Entries: client.Entries{entry}}}
+
+	result, err := (&MinifluxServer{client: fake}).GetUnreadDigest(context.Background(), mcp.CallToolRequest{})
+	if err != nil || result.IsError {
+		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
+	}
+	var digest MCPUnreadDigest
+	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
+		t.Fatalf("decode digest: %v", err)
+	}
+	if len(digest.Entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(digest.Entries))
+	}
+	if got := digest.Entries[0].ContentExcerpt; got != "before\ufffdafter" || !utf8.ValidString(got) {
+		t.Fatalf("content_excerpt = %q, want valid normalized content", got)
+	}
+	if digest.Entries[0].ContentTruncated {
+		t.Fatal("normalized complete content reported as truncated")
+	}
+}
+
 func TestGetUnreadDigestLimitsBatchWhenMetadataExceedsBudget(t *testing.T) {
 	entries := make(client.Entries, maximumDigestEntryLimit)
 	for i := range entries {
