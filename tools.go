@@ -91,6 +91,17 @@ func idArrayProperty(description string) map[string]interface{} {
 	}
 }
 
+func entryIDsProperty() map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "array",
+		"description": "The entry IDs to update",
+		"minItems":    1,
+		"maxItems":    maximumEntryLimit,
+		"uniqueItems": true,
+		"items":       idProperty("An entry ID"),
+	}
+}
+
 func scopedEntryProperties(scopeName string) map[string]interface{} {
 	properties := map[string]interface{}{
 		scopeName: idProperty("The ID used to scope the entry query"),
@@ -147,6 +158,14 @@ func (s *MinifluxServer) writeToolDefinitions() []ToolDefinition {
 				"enum":        []string{"read", "unread"},
 			},
 		}, "entry_id", "status"), s.UpdateEntryStatus},
+		{objectTool("update_entries_status", "Mark explicitly selected entries read or unread", map[string]interface{}{
+			"entry_ids": entryIDsProperty(),
+			"status": map[string]interface{}{
+				"type":        "string",
+				"description": "New entry status",
+				"enum":        []string{"read", "unread"},
+			},
+		}, "entry_ids", "status"), s.UpdateEntriesStatus},
 		{objectTool("toggle_starred", "Toggle the starred state of one entry", map[string]interface{}{"entry_id": idProperty("The entry ID")}, "entry_id"), s.ToggleStarred},
 		{objectTool("refresh_feed", "Request a refresh of one feed", map[string]interface{}{"feed_id": idProperty("The feed ID")}, "feed_id"), s.RefreshFeed},
 	}

@@ -453,6 +453,29 @@ func (s *MinifluxServer) UpdateEntryStatus(ctx context.Context, request mcp.Call
 	return mcp.NewToolResultText(fmt.Sprintf("Entry %d status updated to: %s", entryID, status)), nil
 }
 
+func (s *MinifluxServer) UpdateEntriesStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	arguments, result := argumentsMap(request)
+	if result != nil {
+		return result, nil
+	}
+	entryIDs, result := integerArrayArgument(arguments, "entry_ids", maximumEntryLimit)
+	if result != nil {
+		return result, nil
+	}
+	if len(entryIDs) == 0 {
+		return toolErrorResult("entry_ids must contain at least one ID")
+	}
+	status, ok := arguments["status"].(string)
+	if !ok || status != client.EntryStatusRead && status != client.EntryStatusUnread {
+		return toolErrorResult("status must be read or unread")
+	}
+	if err := s.client.UpdateEntriesContext(ctx, entryIDs, status); err != nil {
+		return toolErrorResult("failed to update entries status")
+	}
+
+	return marshalToolResult(MCPEntriesStatusUpdate{Updated: len(entryIDs), Status: status})
+}
+
 func (s *MinifluxServer) RefreshFeed(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments, result := argumentsMap(request)
 	if result != nil {

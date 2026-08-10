@@ -289,7 +289,7 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 			t.Fatalf("tools/list unexpectedly included removed tool %q", name)
 		}
 	}
-	for _, name := range []string{"update_entry_status", "toggle_starred", "refresh_feed"} {
+	for _, name := range []string{"update_entry_status", "update_entries_status", "toggle_starred", "refresh_feed"} {
 		if slices.Contains(toolNames, name) {
 			t.Fatalf("tools/list unexpectedly included disabled write tool %q", name)
 		}
@@ -488,7 +488,7 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 			t.Fatalf("remote tools/list unexpectedly included removed tool %q", name)
 		}
 	}
-	for _, name := range []string{"update_entry_status", "toggle_starred", "refresh_feed"} {
+	for _, name := range []string{"update_entry_status", "update_entries_status", "toggle_starred", "refresh_feed"} {
 		if slices.Contains(toolNames, name) {
 			t.Fatalf("remote tools/list unexpectedly included disabled write tool %q", name)
 		}

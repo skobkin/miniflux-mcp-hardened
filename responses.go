@@ -76,6 +76,11 @@ type MCPUnreadDigest struct {
 	ScanTruncated bool             `json:"scan_truncated"`
 }
 
+type MCPEntriesStatusUpdate struct {
+	Updated int    `json:"updated"`
+	Status  string `json:"status"`
+}
+
 type MCPVersion struct {
 	Version string `json:"version"`
 }

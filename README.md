@@ -10,9 +10,9 @@ This project is a hardened fork of [`tssujt/miniflux-mcp`](https://github.com/ts
 
 | Area | Upstream | Hardened fork |
 | --- | --- | --- |
-| Tool surface | 40+ API-oriented tools | 14 default read tools and 3 individually opt-in writes |
+| Tool surface | 40+ API-oriented tools | 14 default read tools and 4 individually opt-in writes |
 | Feeds | Read, create, update, delete, refresh, bulk operations, and icon access | Sanitized reads; only single-feed refresh can be enabled |
-| Entries | Read, save, fetch original content, bulk marking, starring, and status changes including `removed` | Bounded sanitized reads; only single-entry starring and `read`/`unread` changes can be enabled |
+| Entries | Read, save, fetch original content, bulk marking, starring, and status changes including `removed` | Bounded sanitized reads; only selected-entry starring and allowlisted `read`/`unread` changes can be enabled |
 | Categories | Read, create, update, delete, refresh, and bulk marking | Sanitized reads only |
 | Administration and utilities | User and API-key administration, discovery, export, history flushing, and raw media access | Not exposed; only compact version, health, and counter diagnostics remain |
 | Responses | Miniflux client objects can cross the MCP boundary | Explicit LLM-facing DTOs omit credentials and unnecessary internal fields, including in nested objects |
@@ -51,12 +51,13 @@ The removed capabilities are intentional security boundaries, not missing API-co
 | `healthcheck` | ✅ | ✅ | Check Miniflux availability. |
 | `fetch_counters` | ✅ | ✅ | Get per-feed read and unread counters. |
 | `update_entry_status` | ❌ | ✅ | Mark one explicitly selected entry `read` or `unread`. |
+| `update_entries_status` | ❌ | ❌ | Mark up to 100 explicitly selected entries `read` or `unread`. |
 | `toggle_starred` | ❌ | ✅ | Toggle one explicitly selected entry's starred state. |
 | `refresh_feed` | ❌ | ✅ | Request a refresh of one explicitly selected feed. |
 
 Entry collections default to 50 results and reject limits above 100. IDs and Unix timestamp filters must be positive integers; offsets must be non-negative. Categories expose identity, visibility, and feed/unread counts; feeds expose identity, public site metadata, language, known check timestamps, disabled/parsing state, and a sanitized category. Unknown check times are omitted. Entry lists expose article metadata, status, tags, and sanitized feed identity without article bodies; single-entry responses add content, comments URL, and creation time.
 
-`get_unread_digest` returns Miniflux-provided article content with an oldest-first unread queue. After successful downstream processing, pass only its `ack_entry_ids` to the separately allowlisted bulk status tool. `since` is an optional caller-owned Unix timestamp applied to `published_at`; no timezone or day-boundary policy is invented. Feed and category filters intersect, exclusions win, and category filtering scans at most 1,000 unread candidates to fill the bounded batch. `scan_truncated` reports when that defensive scan cap prevents a full batch.
+`get_unread_digest` returns Miniflux-provided article content with an oldest-first unread queue. After successful downstream processing, pass only its `ack_entry_ids` to the separately allowlisted `update_entries_status` tool. The bulk tool accepts 1–100 unique safe IDs and only the statuses `read` and `unread`; it never exposes Miniflux's `removed` mutation. `since` is an optional caller-owned Unix timestamp applied to `published_at`; no timezone or day-boundary policy is invented. Feed and category filters intersect, exclusions win, and category filtering scans at most 1,000 unread candidates to fill the bounded batch. `scan_truncated` reports when that defensive scan cap prevents a full batch.
 
 Subscription `feed_url`, Miniflux user IDs, credentials, cookies, fetch/proxy settings, integration URLs, share codes, internal hashes, icons, and enclosures are intentionally absent. Version and counter tools return compact purpose-specific objects.
 
@@ -77,10 +78,10 @@ Subscription `feed_url`, Miniflux user IDs, credentials, cookies, fetch/proxy se
 
 If both Miniflux authentication forms are configured, the API key is used. Credentials configure the server and are never accepted as MCP tool arguments. Health and authentication probes share a 15-second startup deadline and stop early on process termination.
 
-Enable any combination of the three non-default tools listed in the catalog:
+Enable any combination of the four non-default tools listed in the catalog:
 
 ```text
-MCP_WRITE_TOOLS=update_entry_status,toggle_starred,refresh_feed
+MCP_WRITE_TOOLS=update_entry_status,update_entries_status,toggle_starred,refresh_feed
 ```
 
 Names are case-sensitive. Unknown, removed, or empty list elements fail startup, and disabled write tools are omitted from MCP registration entirely.

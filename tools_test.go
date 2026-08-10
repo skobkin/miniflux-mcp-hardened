@@ -17,6 +17,7 @@ func TestParseWriteTools(t *testing.T) {
 		{name: "unset", value: "", expected: []string{}},
 		{name: "whitespace", value: "  ", expected: []string{}},
 		{name: "one", value: "update_entry_status", expected: []string{"update_entry_status"}},
+		{name: "bulk", value: "update_entries_status", expected: []string{"update_entries_status"}},
 		{name: "mixed", value: " toggle_starred, refresh_feed, toggle_starred ", expected: []string{"refresh_feed", "toggle_starred"}},
 		{name: "unknown", value: "create_feed", wantError: true},
 		{name: "removed admin tool", value: "flush_history", wantError: true},
@@ -74,7 +75,7 @@ func TestToolDefinitionsAreReadOnlyByDefault(t *testing.T) {
 }
 
 func TestEachAllowedWriteToolCanBeEnabled(t *testing.T) {
-	expected := []string{"refresh_feed", "toggle_starred", "update_entry_status"}
+	expected := []string{"refresh_feed", "toggle_starred", "update_entries_status", "update_entry_status"}
 	definitions := (&MinifluxServer{}).writeToolDefinitions()
 	if actual := toolNames(definitions); !reflect.DeepEqual(actual, expected) {
 		t.Fatalf("approved write tools = %v, want %v", actual, expected)
@@ -100,8 +101,9 @@ func TestEachAllowedWriteToolCanBeEnabled(t *testing.T) {
 
 func TestMixedWriteToolAllowlist(t *testing.T) {
 	enabled := writeToolSet{
-		"update_entry_status": {},
-		"refresh_feed":        {},
+		"update_entry_status":   {},
+		"update_entries_status": {},
+		"refresh_feed":          {},
 	}
 	names := toolNames((&MinifluxServer{}).toolDefinitions(enabled))
 	if !containsString(names, "update_entry_status") || !containsString(names, "refresh_feed") {
@@ -123,9 +125,10 @@ func TestRegisteredSchemasDoNotAcceptSecrets(t *testing.T) {
 		"apprise_service_urls": {},
 	}
 	enabled := writeToolSet{
-		"update_entry_status": {},
-		"toggle_starred":      {},
-		"refresh_feed":        {},
+		"update_entry_status":   {},
+		"update_entries_status": {},
+		"toggle_starred":        {},
+		"refresh_feed":          {},
 	}
 	for _, definition := range (&MinifluxServer{}).toolDefinitions(enabled) {
 		walkSchemaKeys(definition.Tool.InputSchema.Properties, func(key string) {
