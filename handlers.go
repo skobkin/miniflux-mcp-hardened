@@ -6,16 +6,18 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"miniflux.app/v2/client"
 )
 
 const (
-	defaultEntryLimit       = 50
-	maximumEntryLimit       = 100
-	maximumSafeJSONInteger  = 1<<53 - 1
-	maximumDigestCandidates = 1000
+	defaultEntryLimit           = 50
+	maximumEntryLimit           = 100
+	maximumSafeJSONInteger      = 1<<53 - 1
+	maximumDigestCandidates     = 1000
+	maximumFreeFormStringLength = 4096
 )
 
 func toolErrorResult(message string) (*mcp.CallToolResult, error) {
@@ -98,6 +100,22 @@ func integerArrayArgument(arguments map[string]interface{}, name string, maximum
 	}
 
 	return result, nil
+}
+
+func stringArgument(arguments map[string]interface{}, name string, maximumLength int) (string, *mcp.CallToolResult) {
+	value, exists := arguments[name]
+	if !exists {
+		return "", nil
+	}
+	parsed, ok := value.(string)
+	if !ok {
+		return "", mcp.NewToolResultError(fmt.Sprintf("%s must be a string", name))
+	}
+	if utf8.RuneCountInString(parsed) > maximumLength {
+		return "", mcp.NewToolResultError(fmt.Sprintf("%s must contain at most %d characters", name, maximumLength))
+	}
+
+	return parsed, nil
 }
 
 func marshalToolResult(value interface{}) (*mcp.CallToolResult, error) {
@@ -200,13 +218,11 @@ func parseEntryFilter(arguments map[string]interface{}) (*client.Filter, *mcp.Ca
 	}
 	filter.Offset = int(offset)
 
-	if value, exists := arguments["search"]; exists {
-		search, ok := value.(string)
-		if !ok {
-			return nil, mcp.NewToolResultError("search must be a string")
-		}
-		filter.Search = search
+	search, result := stringArgument(arguments, "search", maximumFreeFormStringLength)
+	if result != nil {
+		return nil, result
 	}
+	filter.Search = search
 	if value, exists := arguments["starred"]; exists {
 		starred, ok := value.(bool)
 		if !ok {

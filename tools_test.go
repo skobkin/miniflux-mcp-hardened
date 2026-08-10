@@ -167,6 +167,24 @@ func TestEntryLimitSchemasMatchRuntimePolicy(t *testing.T) {
 	}
 }
 
+func TestSearchSchemaMatchesRuntimePolicy(t *testing.T) {
+	for _, definition := range (&MinifluxServer{}).readToolDefinitions() {
+		if definition.Tool.Name != "get_entries" {
+			continue
+		}
+		search, ok := definition.Tool.InputSchema.Properties["search"].(map[string]interface{})
+		if !ok {
+			t.Fatal("get_entries search schema missing")
+		}
+		if search["maxLength"] != maximumFreeFormStringLength {
+			t.Fatalf("search maxLength = %v, want %d", search["maxLength"], maximumFreeFormStringLength)
+		}
+
+		return
+	}
+	t.Fatal("get_entries definition not found")
+}
+
 func toolNames(definitions []ToolDefinition) []string {
 	result := make([]string, 0, len(definitions))
 	for _, definition := range definitions {

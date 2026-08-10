@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -117,6 +118,7 @@ func TestParseEntryFilterValidation(t *testing.T) {
 		{name: "invalid order", arguments: map[string]interface{}{"order": "password"}},
 		{name: "invalid direction", arguments: map[string]interface{}{"direction": "sideways"}},
 		{name: "non-boolean starred", arguments: map[string]interface{}{"starred": "yes"}},
+		{name: "non-string search", arguments: map[string]interface{}{"search": true}},
 	}
 
 	for _, test := range tests {
@@ -151,5 +153,31 @@ func TestParseEntryFilterDefaultsToBoundedLimit(t *testing.T) {
 	}
 	if filter.Limit != defaultEntryLimit {
 		t.Fatalf("limit = %d, want %d", filter.Limit, defaultEntryLimit)
+	}
+}
+
+func TestSearchLengthBoundary(t *testing.T) {
+	boundary := strings.Repeat("x", maximumFreeFormStringLength)
+	filter, result := parseEntryFilter(map[string]interface{}{"search": boundary})
+	if result != nil {
+		t.Fatalf("boundary search returned tool error: %#v", result.Content)
+	}
+	if filter.Search != boundary {
+		t.Fatal("boundary search was changed")
+	}
+
+	for _, search := range []string{
+		strings.Repeat("x", maximumFreeFormStringLength+1),
+		strings.Repeat("界", maximumFreeFormStringLength+1),
+	} {
+		if _, result := parseEntryFilter(map[string]interface{}{"search": search}); result == nil || !result.IsError {
+			t.Fatal("over-boundary search succeeded")
+		}
+	}
+
+	multibyteBoundary := strings.Repeat("界", maximumFreeFormStringLength)
+	filter, result = parseEntryFilter(map[string]interface{}{"search": multibyteBoundary})
+	if result != nil || filter.Search != multibyteBoundary {
+		t.Fatalf("multibyte boundary failed: filter=%#v result=%#v", filter, result)
 	}
 }

@@ -65,7 +65,7 @@ func entryFilterProperties() map[string]interface{} {
 		"changed_before":   map[string]interface{}{"type": "integer", "minimum": 1, "description": "Return entries changed before this Unix timestamp"},
 		"before_entry_id":  idProperty("Return entries with an ID lower than this value"),
 		"after_entry_id":   idProperty("Return entries with an ID greater than this value"),
-		"search":           map[string]interface{}{"type": "string", "description": "Search entry title and content"},
+		"search":           map[string]interface{}{"type": "string", "maxLength": maximumFreeFormStringLength, "description": "Search entry title and content"},
 		"starred":          map[string]interface{}{"type": "boolean", "description": "Filter by starred state"},
 		"order": map[string]interface{}{
 			"type":        "string",
