@@ -133,6 +133,21 @@ steps:
     commands:
       - make build
 
+  container:
+    image: woodpeckerci/plugin-docker-buildx:6
+    depends_on:
+      - build
+      - e2e
+    settings:
+      repo: skobkin/miniflux-mcp-hardened
+      dockerfile: Dockerfile
+      dry_run: true
+      platforms:
+        - linux/amd64
+    when:
+      - event: push
+      - event: pull_request
+
   prepare-release:
     image: alpine:latest
     depends_on:
