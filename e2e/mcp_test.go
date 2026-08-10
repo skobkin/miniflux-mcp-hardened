@@ -55,6 +55,11 @@ type httpRPCClient struct {
 	nextID   int
 }
 
+const (
+	e2eNonexistentEntryID = int64(1<<53 - 1)
+	e2eOversizedMCPBody   = 1<<20 + 1
+)
+
 func (c *rpcClient) request(method string, params any, result any) error {
 	c.nextID++
 	request := map[string]any{
@@ -200,7 +205,8 @@ func (c *httpRPCClient) callTool(name string, arguments map[string]any) (string,
 	return "", fmt.Errorf("%s returned no text content", name)
 }
 
-func TestMCPServerWithMiniflux(t *testing.T) {
+func startStdioMCPServer(t *testing.T, writeTools, clientName string) *rpcClient {
+	t.Helper()
 	serverPath := os.Getenv("MCP_SERVER_PATH")
 	if serverPath == "" {
 		t.Fatal("MCP_SERVER_PATH is required")
@@ -212,7 +218,7 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 	}
 
 	command := exec.Command(serverPath)
-	command.Env = append(os.Environ(), "MCP_WRITE_TOOLS=")
+	command.Env = append(os.Environ(), "MCP_WRITE_TOOLS="+writeTools)
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		t.Fatalf("create server stdin: %v", err)
@@ -251,7 +257,7 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
-			"name":    "miniflux-mcp-ci",
+			"name":    clientName,
 			"version": "1.0.0",
 		},
 	}, &initialized); err != nil {
@@ -266,6 +272,12 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 	if err := client.notify("notifications/initialized"); err != nil {
 		t.Fatalf("send initialized notification: %v", err)
 	}
+
+	return client
+}
+
+func TestMCPServerWithMiniflux(t *testing.T) {
+	client := startStdioMCPServer(t, "", "miniflux-mcp-ci")
 
 	var listed struct {
 		Tools []struct {
@@ -339,10 +351,53 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 		t.Fatalf("get_unread_digest returned null collections: %s", digestText)
 	}
 
-	healthCommand := exec.Command(serverPath, "healthcheck")
+	healthCommand := exec.Command(os.Getenv("MCP_SERVER_PATH"), "healthcheck")
 	healthCommand.Env = append(os.Environ(), "MCP_TRANSPORT=stdio")
 	if output, err := healthCommand.CombinedOutput(); err != nil {
 		t.Fatalf("stdio healthcheck command failed: %v\n%s", err, output)
+	}
+}
+
+func TestWriteEnabledMCPServerWithMiniflux(t *testing.T) {
+	client := startStdioMCPServer(t, "update_entries_status", "miniflux-mcp-write-ci")
+
+	var listed struct {
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
+	if err := client.request("tools/list", map[string]any{}, &listed); err != nil {
+		t.Fatalf("list write-enabled tools: %v", err)
+	}
+	toolNames := make([]string, 0, len(listed.Tools))
+	for _, tool := range listed.Tools {
+		toolNames = append(toolNames, tool.Name)
+	}
+	if !slices.Contains(toolNames, "update_entries_status") {
+		t.Fatalf("tools/list did not include enabled update_entries_status tool: %v", toolNames)
+	}
+	for _, name := range []string{"update_entry_status", "toggle_starred", "refresh_feed"} {
+		if slices.Contains(toolNames, name) {
+			t.Fatalf("tools/list unexpectedly included disabled write tool %q", name)
+		}
+	}
+
+	statusText, err := client.callTool("update_entries_status", map[string]any{
+		"entry_ids": []int64{e2eNonexistentEntryID},
+		"status":    "read",
+	})
+	if err != nil {
+		t.Fatalf("acknowledge entries through bulk status tool: %v", err)
+	}
+	var status struct {
+		Updated int    `json:"updated"`
+		Status  string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(statusText), &status); err != nil {
+		t.Fatalf("decode bulk status result: %v", err)
+	}
+	if status.Updated != 1 || status.Status != "read" {
+		t.Fatalf("bulk status result = %#v", status)
 	}
 }
 
@@ -444,6 +499,21 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 	_ = badOriginResponse.Body.Close()
 	if badOriginResponse.StatusCode != http.StatusForbidden {
 		t.Fatalf("bad-origin request returned HTTP %d, want 403", badOriginResponse.StatusCode)
+	}
+
+	oversizedRequest, err := http.NewRequest(http.MethodPost, baseURL+"/mcp", bytes.NewReader(bytes.Repeat([]byte("x"), e2eOversizedMCPBody)))
+	if err != nil {
+		t.Fatalf("create oversized request: %v", err)
+	}
+	oversizedRequest.Header.Set("Authorization", "Bearer "+token)
+	oversizedRequest.Header.Set("Content-Type", "application/json")
+	oversizedResponse, err := httpClient.Do(oversizedRequest)
+	if err != nil {
+		t.Fatalf("send oversized request: %v", err)
+	}
+	_ = oversizedResponse.Body.Close()
+	if oversizedResponse.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized request returned HTTP %d, want 413", oversizedResponse.StatusCode)
 	}
 
 	client := &httpRPCClient{
