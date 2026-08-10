@@ -42,7 +42,7 @@ The removed capabilities are intentional security boundaries, not missing API-co
 | `get_feed_entries` | ✅ | ✅ | List entries from one feed. |
 | `get_feed_entry` | ✅ | ✅ | Get one entry from a feed, including article content. |
 | `get_entries` | ✅ | ✅ | List entries with optional status, scope, time, search, starred, and ordering filters. |
-| `get_unread_digest` | ✅ | ❌ | Get a bounded oldest-first unread batch with content and acknowledgement IDs. |
+| `get_unread_digest` | ✅ | ❌ | Get a bounded oldest-first unread batch with content, acknowledgement IDs, and scan-truncation metadata. |
 | `get_entry` | ✅ | ✅ | Get one entry, including article content. |
 | `get_categories` | ✅ | ✅ | List sanitized categories. |
 | `get_category_feeds` | ✅ | ✅ | List sanitized feeds in one category. |
