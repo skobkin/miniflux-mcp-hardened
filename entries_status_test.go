@@ -75,7 +75,11 @@ func TestUpdateEntriesStatusAcceptsOneID(t *testing.T) {
 func TestUpdateEntriesStatusHidesBackendErrors(t *testing.T) {
 	const backendDetail = "SENTINEL-BULK-STATUS-BACKEND-DETAIL"
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, backendDetail, http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		if err := json.NewEncoder(w).Encode(map[string]string{"error_message": backendDetail}); err != nil {
+			t.Errorf("encode backend error: %v", err)
+		}
 	}))
 	defer apiServer.Close()
 
