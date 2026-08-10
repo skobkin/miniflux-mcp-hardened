@@ -96,6 +96,9 @@ func TestGetUnreadDigestBuildsBoundedOrderedResponse(t *testing.T) {
 	if strings.Contains(text, `"content":`) {
 		t.Fatal("digest returned an unbounded content field")
 	}
+	if strings.Contains(text, `"response_size_limited"`) {
+		t.Fatal("digest returned inactive response_size_limited field")
+	}
 	if len(digest.Entries) != 2 || digest.Entries[0].ID != 1 || digest.Entries[1].ID != 3 {
 		t.Fatalf("digest entries = %#v", digest.Entries)
 	}
@@ -347,6 +350,9 @@ func TestGetUnreadDigestLimitsBatchWhenMetadataExceedsBudget(t *testing.T) {
 	var digest MCPUnreadDigest
 	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
 		t.Fatalf("decode digest: %v", err)
+	}
+	if !strings.Contains(resultText(t, result), `"response_size_limited":true`) {
+		t.Fatal("size-limited digest omitted active response_size_limited field")
 	}
 	if !digest.ResponseSizeLimited || len(digest.Entries) == 0 || len(digest.Entries) >= len(entries) {
 		t.Fatalf("response_size_limited = %t, entries = %d", digest.ResponseSizeLimited, len(digest.Entries))

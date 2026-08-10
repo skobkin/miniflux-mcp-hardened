@@ -79,7 +79,7 @@ type MCPUnreadDigest struct {
 	Entries             []MCPDigestEntry `json:"entries"`
 	AckEntryIDs         []int64          `json:"ack_entry_ids"`
 	ScanTruncated       bool             `json:"scan_truncated"`
-	ResponseSizeLimited bool             `json:"response_size_limited"`
+	ResponseSizeLimited bool             `json:"response_size_limited,omitempty"`
 }
 
 type MCPEntriesStatusUpdate struct {
