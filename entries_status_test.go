@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -68,6 +69,27 @@ func TestUpdateEntriesStatusAcceptsOneID(t *testing.T) {
 	}
 	if response.Updated != 1 || response.Status != client.EntryStatusUnread {
 		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestUpdateEntriesStatusHidesBackendErrors(t *testing.T) {
+	const backendDetail = "SENTINEL-BULK-STATUS-BACKEND-DETAIL"
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, backendDetail, http.StatusInternalServerError)
+	}))
+	defer apiServer.Close()
+
+	server := &MinifluxServer{client: client.NewClient(apiServer.URL, "test-api-key")}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+		"entry_ids": []interface{}{float64(42)},
+		"status":    client.EntryStatusRead,
+	}}}
+	result, err := server.UpdateEntriesStatus(context.Background(), request)
+	if err != nil || result == nil || !result.IsError {
+		t.Fatalf("UpdateEntriesStatus = %#v, %v; want tool error", result, err)
+	}
+	if strings.Contains(resultText(t, result), backendDetail) {
+		t.Fatalf("bulk status error leaked backend detail: %s", resultText(t, result))
 	}
 }
 
