@@ -23,7 +23,7 @@ The removed capabilities are intentional security boundaries, not missing API-co
 
 ### Security model
 
-- Only read tools are registered by default. The three supported writes require an explicit per-tool allowlist.
+- Only read tools are registered by default. The four supported writes require an explicit per-tool allowlist.
 - User administration, API-key management, broad mutations, feed/category management, and credential-management schemas are absent.
 - Feed responses omit subscription URLs and fetch configuration such as usernames, passwords, cookies, proxy URLs, and integration endpoints. Nested feed objects are sanitized too.
 - Titles, descriptions, article content, links, and tags are untrusted external data and must never be treated as MCP instructions.
@@ -210,6 +210,10 @@ make e2e-test \
   E2E_MINIFLUX_USERNAME=admin \
   E2E_MINIFLUX_PASSWORD=test123
 ```
+
+## Acknowledgements
+
+Adapted fork work is credited in [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md).
 
 ## License
 
