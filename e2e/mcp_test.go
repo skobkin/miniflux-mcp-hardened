@@ -481,7 +481,7 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 		"MCP_HTTP_PATH=/mcp",
 		"MCP_AUTH_TOKEN="+token,
 		"MCP_ALLOWED_ORIGINS=",
-		"MCP_WRITE_TOOLS=",
+		"MCP_WRITE_TOOLS=update_entries_status",
 	)
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
@@ -616,7 +616,10 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 			t.Fatalf("remote tools/list unexpectedly included removed tool %q", name)
 		}
 	}
-	for _, name := range []string{"update_entry_status", "update_entries_status", "toggle_starred", "refresh_feed"} {
+	if !slices.Contains(toolNames, "update_entries_status") {
+		t.Fatalf("remote tools/list did not include enabled update_entries_status tool: %v", toolNames)
+	}
+	for _, name := range []string{"update_entry_status", "toggle_starred", "refresh_feed"} {
 		if slices.Contains(toolNames, name) {
 			t.Fatalf("remote tools/list unexpectedly included disabled write tool %q", name)
 		}
