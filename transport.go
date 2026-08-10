@@ -121,7 +121,7 @@ func normalizeOrigin(origin string) (string, error) {
 		return "", err
 	}
 	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.ForceQuery || parsed.RawQuery != "" || strings.Contains(origin, "#") {
+	if (scheme != "http" && scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.ForceQuery || parsed.RawQuery != "" || strings.Contains(origin, "#") {
 		return "", fmt.Errorf("invalid origin")
 	}
 
@@ -137,7 +137,7 @@ func normalizeOrigin(origin string) (string, error) {
 		}
 		port = strconv.Itoa(portNumber)
 	}
-	if scheme == "http" && port == "80" || scheme == "https" && port == "443" {
+	if (scheme == "http" && port == "80") || (scheme == "https" && port == "443") {
 		port = ""
 	}
 	if port != "" {
