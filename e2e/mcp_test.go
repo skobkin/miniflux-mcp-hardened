@@ -553,19 +553,35 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 		t.Fatalf("bad-origin request returned HTTP %d, want 403", badOriginResponse.StatusCode)
 	}
 
-	oversizedRequest, err := http.NewRequest(http.MethodPost, baseURL+"/mcp", bytes.NewReader(bytes.Repeat([]byte("x"), e2eOversizedMCPBody)))
-	if err != nil {
-		t.Fatalf("create oversized request: %v", err)
+	oversizedPayload := bytes.Repeat([]byte("x"), e2eOversizedMCPBody)
+	oversizedRequests := []struct {
+		name             string
+		body             io.Reader
+		contentLength    int64
+		transferEncoding []string
+	}{
+		{name: "content length", body: bytes.NewReader(oversizedPayload), contentLength: e2eOversizedMCPBody},
+		{name: "chunked", body: bytes.NewReader(oversizedPayload), contentLength: -1, transferEncoding: []string{"chunked"}},
 	}
-	oversizedRequest.Header.Set("Authorization", "Bearer "+token)
-	oversizedRequest.Header.Set("Content-Type", "application/json")
-	oversizedResponse, err := httpClient.Do(oversizedRequest)
-	if err != nil {
-		t.Fatalf("send oversized request: %v", err)
-	}
-	_ = oversizedResponse.Body.Close()
-	if oversizedResponse.StatusCode != http.StatusRequestEntityTooLarge {
-		t.Fatalf("oversized request returned HTTP %d, want 413", oversizedResponse.StatusCode)
+	for _, test := range oversizedRequests {
+		t.Run(test.name, func(t *testing.T) {
+			oversizedRequest, err := http.NewRequest(http.MethodPost, baseURL+"/mcp", test.body)
+			if err != nil {
+				t.Fatalf("create oversized request: %v", err)
+			}
+			oversizedRequest.ContentLength = test.contentLength
+			oversizedRequest.TransferEncoding = test.transferEncoding
+			oversizedRequest.Header.Set("Authorization", "Bearer "+token)
+			oversizedRequest.Header.Set("Content-Type", "application/json")
+			oversizedResponse, err := httpClient.Do(oversizedRequest)
+			if err != nil {
+				t.Fatalf("send oversized request: %v", err)
+			}
+			_ = oversizedResponse.Body.Close()
+			if oversizedResponse.StatusCode != http.StatusRequestEntityTooLarge {
+				t.Fatalf("oversized request returned HTTP %d, want 413", oversizedResponse.StatusCode)
+			}
+		})
 	}
 
 	client := &httpRPCClient{
