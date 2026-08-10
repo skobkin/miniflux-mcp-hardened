@@ -115,6 +115,8 @@ type pagedDigestClient struct {
 func (f *pagedDigestClient) EntriesContext(ctx context.Context, filter *client.Filter) (*client.EntryResultSet, error) {
 	f.lastContext = ctx
 	filterCopy := *filter
+	filterCopy.Statuses = append([]string(nil), filter.Statuses...)
+	filterCopy.Tags = append([]string(nil), filter.Tags...)
 	f.entryFilters = append(f.entryFilters, &filterCopy)
 	if f.next >= len(f.pages) {
 		return &client.EntryResultSet{}, nil
