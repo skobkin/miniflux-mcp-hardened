@@ -189,27 +189,29 @@ func serveStreamableHTTP(ctx context.Context, mcpServer *server.MCPServer, cfg t
 
 func limitMCPRequestBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.Body == nil {
+		if r.Body == nil || r.Body == http.NoBody {
 			next.ServeHTTP(w, r)
 
 			return
 		}
 		if r.ContentLength > httpMaximumRequestBody {
+			_ = r.Body.Close()
 			http.Error(w, http.StatusText(http.StatusRequestEntityTooLarge), http.StatusRequestEntityTooLarge)
 
 			return
 		}
 
-		originalBody := r.Body
-		body, err := io.ReadAll(io.LimitReader(originalBody, httpMaximumRequestBody+1))
-		_ = originalBody.Close()
+		limitedBody := http.MaxBytesReader(w, r.Body, httpMaximumRequestBody)
+		body, err := io.ReadAll(limitedBody)
+		_ = limitedBody.Close()
 		if err != nil {
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			var maximumBytesError *http.MaxBytesError
+			if errors.As(err, &maximumBytesError) {
+				http.Error(w, http.StatusText(http.StatusRequestEntityTooLarge), http.StatusRequestEntityTooLarge)
 
-			return
-		}
-		if len(body) > httpMaximumRequestBody {
-			http.Error(w, http.StatusText(http.StatusRequestEntityTooLarge), http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 
 			return
 		}

@@ -201,14 +201,18 @@ func TestHealthcheckResponseIsMinimal(t *testing.T) {
 func TestMCPRequestBodyLimit(t *testing.T) {
 	tests := []struct {
 		name          string
+		method        string
 		size          int
 		unknownLength bool
 		wantStatus    int
 	}{
-		{name: "ordinary", size: 128, wantStatus: http.StatusNoContent},
-		{name: "exact limit", size: httpMaximumRequestBody, wantStatus: http.StatusNoContent},
-		{name: "oversized content length", size: httpMaximumRequestBody + 1, wantStatus: http.StatusRequestEntityTooLarge},
-		{name: "oversized chunked", size: httpMaximumRequestBody + 1, unknownLength: true, wantStatus: http.StatusRequestEntityTooLarge},
+		{name: "ordinary", method: http.MethodPost, size: 128, wantStatus: http.StatusNoContent},
+		{name: "exact limit", method: http.MethodPost, size: httpMaximumRequestBody, wantStatus: http.StatusNoContent},
+		{name: "oversized content length", method: http.MethodPost, size: httpMaximumRequestBody + 1, wantStatus: http.StatusRequestEntityTooLarge},
+		{name: "oversized chunked", method: http.MethodPost, size: httpMaximumRequestBody + 1, unknownLength: true, wantStatus: http.StatusRequestEntityTooLarge},
+		{name: "oversized put", method: http.MethodPut, size: httpMaximumRequestBody + 1, wantStatus: http.StatusRequestEntityTooLarge},
+		{name: "oversized patch", method: http.MethodPatch, size: httpMaximumRequestBody + 1, wantStatus: http.StatusRequestEntityTooLarge},
+		{name: "oversized delete", method: http.MethodDelete, size: httpMaximumRequestBody + 1, wantStatus: http.StatusRequestEntityTooLarge},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -223,7 +227,7 @@ func TestMCPRequestBodyLimit(t *testing.T) {
 				}
 				w.WriteHeader(http.StatusNoContent)
 			}))
-			request := httptest.NewRequest(http.MethodPost, "http://server.example/mcp", bytes.NewReader(payload))
+			request := httptest.NewRequest(test.method, "http://server.example/mcp", bytes.NewReader(payload))
 			if test.unknownLength {
 				request.ContentLength = -1
 			}
