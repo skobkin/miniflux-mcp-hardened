@@ -345,7 +345,7 @@ func (s *MinifluxServer) GetUnreadDigest(ctx context.Context, request mcp.CallTo
 	pageSize := options.limit
 	filterCategories := len(options.categoryIDs) > 0 || len(options.excludeCategoryIDs) > 0
 
-	digestCandidates := make(client.Entries, 0, options.limit)
+	digestCandidates := make(client.Entries, 0, maximumEntryLimit)
 	scanned := 0
 	moreCandidates := false
 	for len(digestCandidates) < options.limit && scanned < maximumDigestCandidates {
