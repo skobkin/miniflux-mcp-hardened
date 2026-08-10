@@ -40,14 +40,14 @@ The removed capabilities are intentional security boundaries, not missing API-co
 | `get_feeds` | ✅ | ✅ | List sanitized feed metadata. |
 | `get_feed` | ✅ | ✅ | Get sanitized metadata for one feed. |
 | `get_feed_entries` | ✅ | ✅ | List entries from one feed. |
-| `get_feed_entry` | ✅ | ✅ | Get one entry from a feed, including article content. |
+| `get_feed_entry` | ✅ | ✅ | Get one entry from a feed, including bounded pageable article content. |
 | `get_entries` | ✅ | ✅ | List entries with optional status, scope, time, search, starred, and ordering filters. |
-| `get_unread_digest` | ✅ | ❌ | Get a bounded oldest-first unread batch with content, acknowledgement IDs, and scan-truncation metadata. |
-| `get_entry` | ✅ | ✅ | Get one entry, including article content. |
+| `get_unread_digest` | ✅ | ❌ | Get a compact oldest-first unread batch with bounded excerpts, acknowledgement IDs, and truncation metadata. |
+| `get_entry` | ✅ | ✅ | Get one entry, including bounded pageable article content. |
 | `get_categories` | ✅ | ✅ | List sanitized categories. |
 | `get_category_feeds` | ✅ | ✅ | List sanitized feeds in one category. |
 | `get_category_entries` | ✅ | ✅ | List entries in one category. |
-| `get_category_entry` | ✅ | ✅ | Get one entry from a category, including article content. |
+| `get_category_entry` | ✅ | ✅ | Get one entry from a category, including bounded pageable article content. |
 | `get_version` | ✅ | ✅ | Get the Miniflux version. |
 | `healthcheck` | ✅ | ✅ | Check Miniflux availability. |
 | `fetch_counters` | ✅ | ✅ | Get per-feed read and unread counters. |
@@ -56,9 +56,11 @@ The removed capabilities are intentional security boundaries, not missing API-co
 | `toggle_starred` | ❌ | ✅ | Toggle one explicitly selected entry's starred state. |
 | `refresh_feed` | ❌ | ✅ | Request a refresh of one explicitly selected feed. |
 
-Entry collections default to 50 results and reject limits above 100. IDs and Unix timestamp filters must be positive integers; offsets must be non-negative. Entry search strings are limited to 4,096 Unicode characters in both the schema and runtime validation. Categories expose identity, visibility, and feed/unread counts; feeds expose identity, public site metadata, language, known check timestamps, disabled/parsing state, and a sanitized category. Unknown check times are omitted. Entry lists expose article metadata, status, tags, and sanitized feed identity without article bodies; single-entry responses add content, comments URL, and creation time.
+Metadata-only entry collections default to 50 results and reject limits above 100. The content-bearing unread digest defaults to 10 entries and rejects limits above 20. IDs and Unix timestamp filters must be positive integers; collection and content offsets must be non-negative. Entry search strings are limited to 4,096 Unicode characters in both the schema and runtime validation. Categories expose identity, visibility, and feed/unread counts; feeds expose identity, public site metadata, language, known check timestamps, disabled/parsing state, and a sanitized category. Unknown check times are omitted. Entry lists expose article metadata, status, tags, and sanitized feed identity without article bodies.
 
-`get_unread_digest` returns Miniflux-provided article content with an oldest-first unread queue. After successful downstream processing, pass only its `ack_entry_ids` to the separately allowlisted `update_entries_status` tool. The bulk tool accepts 1–100 unique safe IDs and only the statuses `read` and `unread`; it never exposes Miniflux's `removed` mutation. `since` is an optional caller-owned Unix timestamp applied to `published_at`; no timezone or day-boundary policy is invented. Feed and category filters intersect, exclusions win, and category filtering scans at most 1,000 unread candidates to fill the bounded batch. `scan_truncated` reports when that defensive scan cap prevents a full batch.
+`get_unread_digest` returns Miniflux-provided article excerpts with an oldest-first unread queue. Excerpts are shared fairly across the batch, are capped at 8 KiB per entry, and carry `content_truncated` when they do not contain the complete article. The fully encoded result is capped at 96 KiB; `response_size_limited` reports the exceptional case where untrusted metadata forces the server to return fewer entries than requested. After successful downstream processing, pass only the entries the caller actually processed from `ack_entry_ids` to the separately allowlisted `update_entries_status` tool. An acknowledgement ID identifies the stable returned batch; it does not assert that a truncated excerpt represents the full article. The bulk tool accepts 1–100 unique safe IDs and only the statuses `read` and `unread`; it never exposes Miniflux's `removed` mutation. `since` is an optional caller-owned Unix timestamp applied to `published_at`; no timezone or day-boundary policy is invented. Feed and category filters intersect, exclusions win, and category filtering scans at most 1,000 unread candidates to fill the bounded batch. `scan_truncated` reports when that defensive scan cap prevents a full batch.
+
+Single-entry tools return a content chunk within the same 96 KiB encoded-result limit. When `content_complete` is false, call the same tool again with its `next_content_offset`; the offset is an opaque UTF-8 byte position and should be passed back unchanged. `content_total_bytes` reports the full Miniflux-provided content size. Detail responses also include comments URL and creation time.
 
 Subscription `feed_url`, Miniflux user IDs, credentials, cookies, fetch/proxy settings, integration URLs, share codes, internal hashes, icons, and enclosures are intentionally absent. Version and counter tools return compact purpose-specific objects.
 

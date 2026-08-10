@@ -55,9 +55,13 @@ type MCPEntrySummary struct {
 
 type MCPEntryDetail struct {
 	MCPEntrySummary
-	CommentsURL string    `json:"comments_url"`
-	Content     string    `json:"content"`
-	CreatedAt   time.Time `json:"created_at"`
+	CommentsURL       string    `json:"comments_url"`
+	Content           string    `json:"content"`
+	CreatedAt         time.Time `json:"created_at"`
+	ContentOffset     int       `json:"content_offset"`
+	NextContentOffset *int      `json:"next_content_offset,omitempty"`
+	ContentTotalBytes int       `json:"content_total_bytes"`
+	ContentComplete   bool      `json:"content_complete"`
 }
 
 type MCPEntryResultSet struct {
@@ -67,13 +71,15 @@ type MCPEntryResultSet struct {
 
 type MCPDigestEntry struct {
 	MCPEntrySummary
-	Content string `json:"content"`
+	ContentExcerpt   string `json:"content_excerpt"`
+	ContentTruncated bool   `json:"content_truncated"`
 }
 
 type MCPUnreadDigest struct {
-	Entries       []MCPDigestEntry `json:"entries"`
-	AckEntryIDs   []int64          `json:"ack_entry_ids"`
-	ScanTruncated bool             `json:"scan_truncated"`
+	Entries             []MCPDigestEntry `json:"entries"`
+	AckEntryIDs         []int64          `json:"ack_entry_ids"`
+	ScanTruncated       bool             `json:"scan_truncated"`
+	ResponseSizeLimited bool             `json:"response_size_limited"`
 }
 
 type MCPEntriesStatusUpdate struct {
@@ -184,27 +190,37 @@ func toMCPEntrySummary(entry *client.Entry) MCPEntrySummary {
 	}
 }
 
-func toMCPEntryDetail(entry *client.Entry) *MCPEntryDetail {
+func toMCPEntryDetail(entry *client.Entry, contentOffset, contentEnd int) *MCPEntryDetail {
 	if entry == nil {
 		return nil
 	}
+	var nextContentOffset *int
+	if contentEnd < len(entry.Content) {
+		next := contentEnd
+		nextContentOffset = &next
+	}
 
 	return &MCPEntryDetail{
-		MCPEntrySummary: toMCPEntrySummary(entry),
-		CommentsURL:     entry.CommentsURL,
-		Content:         entry.Content,
-		CreatedAt:       entry.CreatedAt,
+		MCPEntrySummary:   toMCPEntrySummary(entry),
+		CommentsURL:       entry.CommentsURL,
+		Content:           entry.Content[contentOffset:contentEnd],
+		CreatedAt:         entry.CreatedAt,
+		ContentOffset:     contentOffset,
+		NextContentOffset: nextContentOffset,
+		ContentTotalBytes: len(entry.Content),
+		ContentComplete:   contentEnd == len(entry.Content),
 	}
 }
 
-func toMCPDigestEntry(entry *client.Entry) MCPDigestEntry {
+func toMCPDigestEntry(entry *client.Entry, excerpt string) MCPDigestEntry {
 	if entry == nil {
 		return MCPDigestEntry{}
 	}
 
 	return MCPDigestEntry{
-		MCPEntrySummary: toMCPEntrySummary(entry),
-		Content:         entry.Content,
+		MCPEntrySummary:  toMCPEntrySummary(entry),
+		ContentExcerpt:   excerpt,
+		ContentTruncated: len(excerpt) < len(entry.Content),
 	}
 }
 

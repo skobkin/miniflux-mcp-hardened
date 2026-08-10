@@ -268,6 +268,164 @@ func TestEntryDetailIncludesContentWithoutSensitiveBackendFields(t *testing.T) {
 			t.Errorf("serialized entry detail contained forbidden field %q: %s", forbidden, text)
 		}
 	}
+	var detail MCPEntryDetail
+	if err := json.Unmarshal([]byte(text), &detail); err != nil {
+		t.Fatalf("decode entry detail: %v", err)
+	}
+	if detail.ContentOffset != 0 || detail.NextContentOffset != nil || detail.ContentTotalBytes != len(entry.Content) || !detail.ContentComplete {
+		t.Fatalf("content paging metadata = %#v", detail)
+	}
+}
+
+func TestEntryDetailPagesLargeMultibyteContent(t *testing.T) {
+	content := strings.Repeat("<p>界 & quoted \"content\"</p>\n", 10000)
+	entry := secretEntry()
+	entry.Content = content
+	server := &MinifluxServer{client: &fakeMinifluxClient{entry: entry}}
+
+	var reconstructed strings.Builder
+	var offset int
+	for call := 0; ; call++ {
+		if call > 20 {
+			t.Fatal("content paging did not complete")
+		}
+		request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+			"entry_id":       float64(entry.ID),
+			"content_offset": float64(offset),
+		}}}
+		result, err := server.GetEntry(context.Background(), request)
+		if err != nil || result.IsError {
+			t.Fatalf("GetEntry(offset=%d) = %#v, %v", offset, result, err)
+		}
+		encoded, err := json.Marshal(result)
+		if err != nil {
+			t.Fatalf("encode tool result: %v", err)
+		}
+		if len(encoded) > maximumContentResultBytes {
+			t.Fatalf("encoded result size = %d, want <= %d", len(encoded), maximumContentResultBytes)
+		}
+
+		var detail MCPEntryDetail
+		if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
+			t.Fatalf("decode entry detail: %v", err)
+		}
+		if detail.ContentOffset != offset || detail.ContentTotalBytes != len(content) {
+			t.Fatalf("paging metadata at offset %d = %#v", offset, detail)
+		}
+		if !strings.Contains(resultText(t, result), "<p>") || strings.Contains(resultText(t, result), `\u003c`) {
+			t.Fatal("entry content was unnecessarily HTML-escaped")
+		}
+		reconstructed.WriteString(detail.Content)
+		if detail.ContentComplete {
+			if detail.NextContentOffset != nil {
+				t.Fatalf("complete response has next offset %d", *detail.NextContentOffset)
+			}
+
+			break
+		}
+		if detail.NextContentOffset == nil || *detail.NextContentOffset <= offset {
+			t.Fatalf("next content offset = %v after %d", detail.NextContentOffset, offset)
+		}
+		offset = *detail.NextContentOffset
+	}
+	if reconstructed.String() != content {
+		t.Fatal("paged content did not reconstruct the original article")
+	}
+}
+
+func TestDetailHandlersHonorContentOffset(t *testing.T) {
+	entry := secretEntry()
+	entry.Content = "abc界def"
+	server := &MinifluxServer{client: &fakeMinifluxClient{entry: entry}}
+	tests := []struct {
+		name      string
+		arguments map[string]interface{}
+		call      func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error)
+	}{
+		{
+			name:      "entry",
+			arguments: map[string]interface{}{"entry_id": float64(entry.ID), "content_offset": float64(3)},
+			call:      server.GetEntry,
+		},
+		{
+			name:      "feed entry",
+			arguments: map[string]interface{}{"feed_id": float64(42), "entry_id": float64(entry.ID), "content_offset": float64(3)},
+			call:      server.GetFeedEntry,
+		},
+		{
+			name:      "category entry",
+			arguments: map[string]interface{}{"category_id": float64(7), "entry_id": float64(entry.ID), "content_offset": float64(3)},
+			call:      server.GetCategoryEntry,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: test.arguments}}
+			result, err := test.call(context.Background(), request)
+			if err != nil || result.IsError {
+				t.Fatalf("detail call = %#v, %v", result, err)
+			}
+			var detail MCPEntryDetail
+			if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
+				t.Fatalf("decode entry detail: %v", err)
+			}
+			if detail.ContentOffset != 3 || detail.Content != "界def" || !detail.ContentComplete {
+				t.Fatalf("detail = %#v", detail)
+			}
+		})
+	}
+}
+
+func TestGetEntryValidatesContentOffset(t *testing.T) {
+	entry := secretEntry()
+	entry.Content = "a界"
+	server := &MinifluxServer{client: &fakeMinifluxClient{entry: entry}}
+	tests := []struct {
+		name   string
+		offset interface{}
+	}{
+		{name: "negative", offset: float64(-1)},
+		{name: "fractional", offset: 1.5},
+		{name: "unsafe", offset: float64(1 << 53)},
+		{name: "past end", offset: float64(len(entry.Content) + 1)},
+		{name: "mid codepoint", offset: float64(2)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+				"entry_id":       float64(entry.ID),
+				"content_offset": test.offset,
+			}}}
+			result, err := server.GetEntry(context.Background(), request)
+			if err != nil || result == nil || !result.IsError {
+				t.Fatalf("GetEntry = %#v, %v; want tool error", result, err)
+			}
+		})
+	}
+}
+
+func TestGetEntryAcceptsEndContentOffset(t *testing.T) {
+	entry := secretEntry()
+	entry.Content = "finished"
+	server := &MinifluxServer{client: &fakeMinifluxClient{entry: entry}}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+		"entry_id":       float64(entry.ID),
+		"content_offset": float64(len(entry.Content)),
+	}}}
+
+	result, err := server.GetEntry(context.Background(), request)
+	if err != nil || result.IsError {
+		t.Fatalf("GetEntry = %#v, %v", result, err)
+	}
+	var detail MCPEntryDetail
+	if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
+		t.Fatalf("decode entry detail: %v", err)
+	}
+	if detail.Content != "" || detail.ContentOffset != len(entry.Content) || detail.NextContentOffset != nil || !detail.ContentComplete {
+		t.Fatalf("detail = %#v", detail)
+	}
 }
 
 func TestBackendErrorsDoNotCrossMCPBoundary(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"miniflux.app/v2/client"
@@ -39,7 +40,7 @@ func TestParseUnreadDigestOptionsDefaults(t *testing.T) {
 	if result != nil {
 		t.Fatalf("parseUnreadDigestOptions returned tool error: %#v", result.Content)
 	}
-	if options.limit != defaultEntryLimit || options.since != 0 || options.feedID != 0 {
+	if options.limit != defaultDigestEntryLimit || options.since != 0 || options.feedID != 0 {
 		t.Fatalf("default options = %#v", options)
 	}
 }
@@ -47,7 +48,7 @@ func TestParseUnreadDigestOptionsDefaults(t *testing.T) {
 func TestParseUnreadDigestOptionsValidation(t *testing.T) {
 	tests := []map[string]interface{}{
 		{"limit": float64(0)},
-		{"limit": float64(maximumEntryLimit + 1)},
+		{"limit": float64(maximumDigestEntryLimit + 1)},
 		{"since": float64(1 << 53)},
 		{"feed_id": float64(1.5)},
 		{"category_ids": "1"},
@@ -88,14 +89,21 @@ func TestGetUnreadDigestBuildsBoundedOrderedResponse(t *testing.T) {
 		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
 	}
 	var digest MCPUnreadDigest
-	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
+	text := resultText(t, result)
+	if err := json.Unmarshal([]byte(text), &digest); err != nil {
 		t.Fatalf("decode digest: %v", err)
+	}
+	if strings.Contains(text, `"content":`) {
+		t.Fatal("digest returned an unbounded content field")
 	}
 	if len(digest.Entries) != 2 || digest.Entries[0].ID != 1 || digest.Entries[1].ID != 3 {
 		t.Fatalf("digest entries = %#v", digest.Entries)
 	}
 	if len(digest.AckEntryIDs) != 2 || digest.AckEntryIDs[0] != 1 || digest.AckEntryIDs[1] != 3 {
 		t.Fatalf("ack_entry_ids = %v", digest.AckEntryIDs)
+	}
+	if digest.Entries[0].ContentExcerpt != "first" || digest.Entries[0].ContentTruncated {
+		t.Fatalf("first digest excerpt = %#v", digest.Entries[0])
 	}
 	if len(fake.entryFilters) != 1 {
 		t.Fatalf("Miniflux calls = %d, want 1", len(fake.entryFilters))
@@ -208,6 +216,125 @@ func TestGetUnreadDigestSanitizesNestedFeed(t *testing.T) {
 	}
 	if strings.Contains(text, sentinelSecret) {
 		t.Fatalf("digest leaked backend secret: %s", text)
+	}
+}
+
+func TestGetUnreadDigestBoundsLargeArticleBatch(t *testing.T) {
+	entries := make(client.Entries, 5)
+	for i := range entries {
+		entries[i] = &client.Entry{
+			ID:      int64(i + 1),
+			Title:   "Large article",
+			Content: strings.Repeat("<p>large & quoted \"article\"</p>", 6000),
+			Feed:    &client.Feed{ID: 1, Title: "Feed"},
+		}
+	}
+	fake := &fakeMinifluxClient{entries: &client.EntryResultSet{Total: len(entries), Entries: entries}}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{"limit": float64(5)}}}
+
+	result, err := (&MinifluxServer{client: fake}).GetUnreadDigest(context.Background(), request)
+	if err != nil || result.IsError {
+		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("encode tool result: %v", err)
+	}
+	if len(encoded) > maximumContentResultBytes {
+		t.Fatalf("encoded result size = %d, want <= %d", len(encoded), maximumContentResultBytes)
+	}
+	var digest MCPUnreadDigest
+	text := resultText(t, result)
+	if err := json.Unmarshal([]byte(text), &digest); err != nil {
+		t.Fatalf("decode digest: %v", err)
+	}
+	if len(digest.Entries) != 5 || !reflect.DeepEqual(digest.AckEntryIDs, []int64{1, 2, 3, 4, 5}) {
+		t.Fatalf("digest batch = %#v, ack IDs = %v", digest.Entries, digest.AckEntryIDs)
+	}
+	for i, entry := range digest.Entries {
+		if entry.ContentExcerpt == "" || !entry.ContentTruncated {
+			t.Errorf("entry %d excerpt = %#v", i, entry)
+		}
+	}
+	if strings.Contains(text, `\u003c`) {
+		t.Fatal("digest unnecessarily HTML-escaped article excerpts")
+	}
+}
+
+func TestGetUnreadDigestSharesExcerptBudgetAcrossMaximumBatch(t *testing.T) {
+	entries := make(client.Entries, maximumDigestEntryLimit)
+	content := strings.Repeat("界<&\"", 5000)
+	for i := range entries {
+		entries[i] = &client.Entry{ID: int64(i + 1), Content: content}
+	}
+	fake := &fakeMinifluxClient{entries: &client.EntryResultSet{Total: len(entries), Entries: entries}}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+		"limit": float64(maximumDigestEntryLimit),
+	}}}
+
+	result, err := (&MinifluxServer{client: fake}).GetUnreadDigest(context.Background(), request)
+	if err != nil || result.IsError {
+		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("encode tool result: %v", err)
+	}
+	if len(encoded) > maximumContentResultBytes {
+		t.Fatalf("encoded result size = %d, want <= %d", len(encoded), maximumContentResultBytes)
+	}
+	var digest MCPUnreadDigest
+	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
+		t.Fatalf("decode digest: %v", err)
+	}
+	if len(digest.Entries) != maximumDigestEntryLimit {
+		t.Fatalf("entries = %d, want %d", len(digest.Entries), maximumDigestEntryLimit)
+	}
+	wantLength := len(digest.Entries[0].ContentExcerpt)
+	if wantLength == 0 {
+		t.Fatal("first entry received an empty excerpt")
+	}
+	for i, entry := range digest.Entries {
+		if !entry.ContentTruncated || len(entry.ContentExcerpt) != wantLength {
+			t.Errorf("entry %d excerpt length = %d, truncated = %t; want %d, true", i, len(entry.ContentExcerpt), entry.ContentTruncated, wantLength)
+		}
+		if !utf8.ValidString(entry.ContentExcerpt) {
+			t.Errorf("entry %d excerpt is not valid UTF-8", i)
+		}
+	}
+}
+
+func TestGetUnreadDigestLimitsBatchWhenMetadataExceedsBudget(t *testing.T) {
+	entries := make(client.Entries, maximumDigestEntryLimit)
+	for i := range entries {
+		entries[i] = &client.Entry{
+			ID:    int64(i + 1),
+			Title: strings.Repeat(string(rune('a'+i)), 20*1024),
+		}
+	}
+	fake := &fakeMinifluxClient{entries: &client.EntryResultSet{Total: len(entries), Entries: entries}}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+		"limit": float64(maximumDigestEntryLimit),
+	}}}
+
+	result, err := (&MinifluxServer{client: fake}).GetUnreadDigest(context.Background(), request)
+	if err != nil || result.IsError {
+		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
+	}
+	var digest MCPUnreadDigest
+	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
+		t.Fatalf("decode digest: %v", err)
+	}
+	if !digest.ResponseSizeLimited || len(digest.Entries) == 0 || len(digest.Entries) >= len(entries) {
+		t.Fatalf("response_size_limited = %t, entries = %d", digest.ResponseSizeLimited, len(digest.Entries))
+	}
+	if len(digest.Entries) != len(digest.AckEntryIDs) {
+		t.Fatalf("entries = %d, ack IDs = %d", len(digest.Entries), len(digest.AckEntryIDs))
+	}
+	for i, entry := range digest.Entries {
+		if entry.ID != int64(i+1) || digest.AckEntryIDs[i] != entry.ID {
+			t.Fatalf("entry %d = %d, ack ID = %d", i, entry.ID, digest.AckEntryIDs[i])
+		}
 	}
 }
 

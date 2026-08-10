@@ -142,7 +142,6 @@ func TestRegisteredSchemasDoNotAcceptSecrets(t *testing.T) {
 func TestEntryLimitSchemasMatchRuntimePolicy(t *testing.T) {
 	listTools := map[string]struct{}{
 		"get_entries":          {},
-		"get_unread_digest":    {},
 		"get_feed_entries":     {},
 		"get_category_entries": {},
 	}
@@ -164,6 +163,51 @@ func TestEntryLimitSchemasMatchRuntimePolicy(t *testing.T) {
 	}
 	if len(listTools) != 0 {
 		t.Fatalf("list tools missing from definitions: %v", listTools)
+	}
+}
+
+func TestDigestLimitSchemaMatchesRuntimePolicy(t *testing.T) {
+	for _, definition := range (&MinifluxServer{}).readToolDefinitions() {
+		if definition.Tool.Name != "get_unread_digest" {
+			continue
+		}
+		limit, ok := definition.Tool.InputSchema.Properties["limit"].(map[string]interface{})
+		if !ok {
+			t.Fatal("get_unread_digest has no limit schema")
+		}
+		if limit["default"] != defaultDigestEntryLimit {
+			t.Errorf("digest limit default = %v, want %d", limit["default"], defaultDigestEntryLimit)
+		}
+		if limit["maximum"] != maximumDigestEntryLimit {
+			t.Errorf("digest limit maximum = %v, want %d", limit["maximum"], maximumDigestEntryLimit)
+		}
+
+		return
+	}
+	t.Fatal("get_unread_digest definition not found")
+}
+
+func TestDetailToolSchemasExposeContentOffset(t *testing.T) {
+	wanted := map[string]struct{}{
+		"get_entry":          {},
+		"get_feed_entry":     {},
+		"get_category_entry": {},
+	}
+	for _, definition := range (&MinifluxServer{}).readToolDefinitions() {
+		if _, ok := wanted[definition.Tool.Name]; !ok {
+			continue
+		}
+		offset, ok := definition.Tool.InputSchema.Properties["content_offset"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("tool %q has no content_offset schema", definition.Tool.Name)
+		}
+		if offset["minimum"] != 0 {
+			t.Errorf("tool %q content_offset minimum = %v, want 0", definition.Tool.Name, offset["minimum"])
+		}
+		delete(wanted, definition.Tool.Name)
+	}
+	if len(wanted) != 0 {
+		t.Fatalf("detail tools missing from definitions: %v", wanted)
 	}
 }
 

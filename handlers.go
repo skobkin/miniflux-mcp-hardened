@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,10 @@ import (
 const (
 	defaultEntryLimit           = 50
 	maximumEntryLimit           = 100
+	defaultDigestEntryLimit     = 10
+	maximumDigestEntryLimit     = 20
+	maximumDigestExcerptBytes   = 8 * 1024
+	maximumContentResultBytes   = 96 * 1024
 	maximumSafeJSONInteger      = 1<<53 - 1
 	maximumDigestCandidates     = 1000
 	maximumFreeFormStringLength = 4096
@@ -130,6 +135,27 @@ func marshalToolResult(value interface{}) (*mcp.CallToolResult, error) {
 	}
 
 	return mcp.NewToolResultText(string(data)), nil
+}
+
+func marshalCompactToolResult(value interface{}) (*mcp.CallToolResult, error) {
+	var data bytes.Buffer
+	encoder := json.NewEncoder(&data)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return toolErrorResult("failed to encode response")
+	}
+	encoded := bytes.TrimSuffix(data.Bytes(), []byte{'\n'})
+
+	return mcp.NewToolResultText(string(encoded)), nil
+}
+
+func encodedToolResultSize(result *mcp.CallToolResult) (int, error) {
+	data, err := json.Marshal(result)
+	if err != nil {
+		return 0, err
+	}
+
+	return len(data), nil
 }
 
 func (s *MinifluxServer) GetFeeds(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -303,9 +329,9 @@ type unreadDigestOptions struct {
 }
 
 func parseUnreadDigestOptions(arguments map[string]interface{}) (unreadDigestOptions, *mcp.CallToolResult) {
-	options := unreadDigestOptions{limit: defaultEntryLimit}
+	options := unreadDigestOptions{limit: defaultDigestEntryLimit}
 
-	limit, result := integerArgument(arguments, "limit", false, 1, maximumEntryLimit)
+	limit, result := integerArgument(arguments, "limit", false, 1, maximumDigestEntryLimit)
 	if result != nil {
 		return options, result
 	}
@@ -396,18 +422,97 @@ func (s *MinifluxServer) GetUnreadDigest(ctx context.Context, request mcp.CallTo
 	if len(digestCandidates) > options.limit {
 		digestCandidates = digestCandidates[:options.limit]
 	}
-	digestEntries := make([]MCPDigestEntry, 0, len(digestCandidates))
-	ackEntryIDs := make([]int64, 0, len(digestCandidates))
-	for _, entry := range digestCandidates {
-		digestEntries = append(digestEntries, toMCPDigestEntry(entry))
+
+	return boundedUnreadDigestResult(digestCandidates, scanTruncated)
+}
+
+func boundedUnreadDigestResult(entries client.Entries, scanTruncated bool) (*mcp.CallToolResult, error) {
+	included := len(entries)
+	responseSizeLimited := false
+	var baseResult *mcp.CallToolResult
+	for {
+		digest := buildUnreadDigest(entries[:included], 0, scanTruncated, responseSizeLimited)
+		result, err := marshalCompactToolResult(digest)
+		if err != nil {
+			return result, err
+		}
+		size, err := encodedToolResultSize(result)
+		if err != nil {
+			return toolErrorResult("failed to encode response")
+		}
+		if size <= maximumContentResultBytes {
+			baseResult = result
+
+			break
+		}
+		if included == 0 {
+			return toolErrorResult("digest metadata exceeds response size limit")
+		}
+		included--
+		responseSizeLimited = true
+	}
+
+	if included == 0 {
+		if len(entries) > 0 {
+			return toolErrorResult("digest metadata exceeds response size limit")
+		}
+
+		return baseResult, nil
+	}
+
+	bestResult := baseResult
+	low, high := 1, maximumDigestExcerptBytes
+	for low <= high {
+		candidateLimit := low + (high-low)/2
+		digest := buildUnreadDigest(entries[:included], candidateLimit, scanTruncated, responseSizeLimited)
+		result, err := marshalCompactToolResult(digest)
+		if err != nil {
+			return result, err
+		}
+		size, err := encodedToolResultSize(result)
+		if err != nil {
+			return toolErrorResult("failed to encode response")
+		}
+		if size <= maximumContentResultBytes {
+			bestResult = result
+			low = candidateLimit + 1
+		} else {
+			high = candidateLimit - 1
+		}
+	}
+
+	return bestResult, nil
+}
+
+func buildUnreadDigest(entries client.Entries, excerptLimit int, scanTruncated, responseSizeLimited bool) MCPUnreadDigest {
+	digestEntries := make([]MCPDigestEntry, 0, len(entries))
+	ackEntryIDs := make([]int64, 0, len(entries))
+	for _, entry := range entries {
+		excerpt := utf8Prefix(entry.Content, excerptLimit)
+		digestEntries = append(digestEntries, toMCPDigestEntry(entry, excerpt))
 		ackEntryIDs = append(ackEntryIDs, entry.ID)
 	}
 
-	return marshalToolResult(MCPUnreadDigest{
-		Entries:       digestEntries,
-		AckEntryIDs:   ackEntryIDs,
-		ScanTruncated: scanTruncated,
-	})
+	return MCPUnreadDigest{
+		Entries:             digestEntries,
+		AckEntryIDs:         ackEntryIDs,
+		ScanTruncated:       scanTruncated,
+		ResponseSizeLimited: responseSizeLimited,
+	}
+}
+
+func utf8Prefix(value string, maximumBytes int) string {
+	if maximumBytes >= len(value) {
+		return value
+	}
+	if maximumBytes <= 0 {
+		return ""
+	}
+	for maximumBytes > 0 && !utf8.RuneStart(value[maximumBytes]) {
+		maximumBytes--
+	}
+
+	return value[:maximumBytes]
 }
 
 func digestCategoryAllowed(entry *client.Entry, included, excluded []int64) bool {
@@ -431,12 +536,88 @@ func (s *MinifluxServer) GetEntry(ctx context.Context, request mcp.CallToolReque
 	if result != nil {
 		return result, nil
 	}
+	contentOffset, result := integerArgument(arguments, "content_offset", false, 0, maximumSafeJSONInteger)
+	if result != nil {
+		return result, nil
+	}
 	entry, err := s.client.EntryContext(ctx, entryID)
-	if err != nil {
+	if err != nil || entry == nil {
 		return toolErrorResult("failed to fetch entry")
 	}
 
-	return marshalToolResult(toMCPEntryDetail(entry))
+	return boundedEntryDetailResult(entry, contentOffset)
+}
+
+func boundedEntryDetailResult(entry *client.Entry, contentOffset int64) (*mcp.CallToolResult, error) {
+	if contentOffset > int64(len(entry.Content)) {
+		return toolErrorResult("content_offset exceeds content length")
+	}
+	offset := int(contentOffset)
+	if offset < len(entry.Content) && !utf8.RuneStart(entry.Content[offset]) {
+		return toolErrorResult("content_offset must be a UTF-8 boundary")
+	}
+
+	baseResult, err := marshalCompactToolResult(toMCPEntryDetail(entry, offset, offset))
+	if err != nil {
+		return baseResult, err
+	}
+	baseSize, err := encodedToolResultSize(baseResult)
+	if err != nil {
+		return toolErrorResult("failed to encode response")
+	}
+	if baseSize > maximumContentResultBytes {
+		return toolErrorResult("entry metadata exceeds response size limit")
+	}
+	if offset == len(entry.Content) {
+		return baseResult, nil
+	}
+
+	fullResult, err := marshalCompactToolResult(toMCPEntryDetail(entry, offset, len(entry.Content)))
+	if err != nil {
+		return fullResult, err
+	}
+	fullSize, err := encodedToolResultSize(fullResult)
+	if err != nil {
+		return toolErrorResult("failed to encode response")
+	}
+	if fullSize <= maximumContentResultBytes {
+		return fullResult, nil
+	}
+
+	bestResult := baseResult
+	bestEnd := offset
+	low, high := offset+1, len(entry.Content)-1
+	for low <= high {
+		candidateEnd := low + (high-low)/2
+		for candidateEnd > offset && candidateEnd < len(entry.Content) && !utf8.RuneStart(entry.Content[candidateEnd]) {
+			candidateEnd--
+		}
+		if candidateEnd <= bestEnd {
+			low++
+
+			continue
+		}
+		result, err := marshalCompactToolResult(toMCPEntryDetail(entry, offset, candidateEnd))
+		if err != nil {
+			return result, err
+		}
+		size, err := encodedToolResultSize(result)
+		if err != nil {
+			return toolErrorResult("failed to encode response")
+		}
+		if size <= maximumContentResultBytes {
+			bestResult = result
+			bestEnd = candidateEnd
+			low = candidateEnd + 1
+		} else {
+			high = candidateEnd - 1
+		}
+	}
+	if bestEnd == offset && offset < len(entry.Content) {
+		return toolErrorResult("entry metadata leaves no room for content")
+	}
+
+	return bestResult, nil
 }
 
 func (s *MinifluxServer) UpdateEntryStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -566,12 +747,16 @@ func (s *MinifluxServer) GetFeedEntry(ctx context.Context, request mcp.CallToolR
 	if result != nil {
 		return result, nil
 	}
+	contentOffset, result := integerArgument(arguments, "content_offset", false, 0, maximumSafeJSONInteger)
+	if result != nil {
+		return result, nil
+	}
 	entry, err := s.client.FeedEntryContext(ctx, feedID, entryID)
-	if err != nil {
+	if err != nil || entry == nil {
 		return toolErrorResult("failed to fetch feed entry")
 	}
 
-	return marshalToolResult(toMCPEntryDetail(entry))
+	return boundedEntryDetailResult(entry, contentOffset)
 }
 
 func (s *MinifluxServer) GetCategoryFeeds(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -625,12 +810,16 @@ func (s *MinifluxServer) GetCategoryEntry(ctx context.Context, request mcp.CallT
 	if result != nil {
 		return result, nil
 	}
+	contentOffset, result := integerArgument(arguments, "content_offset", false, 0, maximumSafeJSONInteger)
+	if result != nil {
+		return result, nil
+	}
 	entry, err := s.client.CategoryEntryContext(ctx, categoryID, entryID)
-	if err != nil {
+	if err != nil || entry == nil {
 		return toolErrorResult("failed to fetch category entry")
 	}
 
-	return marshalToolResult(toMCPEntryDetail(entry))
+	return boundedEntryDetailResult(entry, contentOffset)
 }
 
 func (s *MinifluxServer) ToggleStarred(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
