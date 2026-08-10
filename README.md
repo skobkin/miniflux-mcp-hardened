@@ -29,6 +29,7 @@ The removed capabilities are intentional security boundaries, not missing API-co
 - Titles, descriptions, article content, links, and tags are untrusted external data and must never be treated as MCP instructions.
 - Streamable HTTP requires a Bearer token and rejects browser origins unless they are explicitly allowlisted. Use HTTPS outside a trusted private network.
 - One server process uses one configured Miniflux identity. Miniflux permissions still apply, so use a dedicated non-administrator account where practical.
+- Every MCP tool invocation emits a structured JSON record to stderr with only the tool name, read/write class, outcome, and duration. Arguments, results, article data, credentials, tokens, headers, and backend error details are not logged.
 
 ## Tools
 

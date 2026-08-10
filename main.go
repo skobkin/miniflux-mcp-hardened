@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -64,49 +64,56 @@ func verifyMinifluxStartup(ctx context.Context, miniflux minifluxStartupClient) 
 	if err := miniflux.HealthcheckContext(ctx); err != nil {
 		return errors.New("miniflux healthcheck failed")
 	}
-	log.Printf("Healthcheck passed")
+	slog.Info("miniflux startup check", "check", "health", "outcome", "success")
 
 	user, err := miniflux.MeContext(ctx)
 	if err != nil || user == nil {
 		return errors.New("miniflux authentication failed")
 	}
-	log.Printf("Auth passed")
+	slog.Info("miniflux startup check", "check", "authentication", "outcome", "success")
 
 	return nil
 }
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	slog.SetDefault(logger)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 
 	transport, err := loadTransportConfig()
 	if err != nil {
 		stop()
-		log.Fatalf("Invalid transport configuration: %v", err)
+		logger.Error("invalid transport configuration", "error", err)
+		os.Exit(1)
 	}
 	enabledWrites, err := parseWriteTools(os.Getenv(writeToolsEnvironmentVariable))
 	if err != nil {
 		stop()
-		log.Fatalf("Invalid write-tool configuration: %v", err)
+		logger.Error("invalid write-tool configuration", "error", err)
+		os.Exit(1)
 	}
-	log.Printf("Starting miniflux-mcp version=%s revision=%s build_date=%s", Version, Revision, BuildDate)
+	logger.Info("starting miniflux-mcp", "version", Version, "revision", Revision, "build_date", BuildDate)
 
 	startupCtx, cancelStartup := context.WithTimeout(ctx, minifluxStartupTimeout)
 	minifluxServer, err := NewMinifluxServer(startupCtx)
 	cancelStartup()
 	if err != nil {
 		stop()
-		log.Fatal(err)
+		logger.Error("miniflux startup failed", "error", err)
+		os.Exit(1)
 	}
 	mcpServer := server.NewMCPServer(
 		"miniflux-mcp",
 		Version,
 		server.WithLogging(),
+		server.WithToolHandlerMiddleware(newToolCallLoggingMiddleware(logger)),
 	)
 	minifluxServer.RegisterTools(mcpServer, enabledWrites)
 
 	if err := serveMCP(ctx, mcpServer, transport); err != nil {
 		stop()
-		log.Fatalf("Server failed: %v", err)
+		logger.Error("server failed", "error", err)
+		os.Exit(1)
 	}
 	stop()
 }
