@@ -204,6 +204,9 @@ func TestDetailToolSchemasExposeContentOffset(t *testing.T) {
 		if offset["minimum"] != 0 {
 			t.Errorf("tool %q content_offset minimum = %v, want 0", definition.Tool.Name, offset["minimum"])
 		}
+		if offset["maximum"] != maximumSafeJSONInteger {
+			t.Errorf("tool %q content_offset maximum = %v, want %d", definition.Tool.Name, offset["maximum"], maximumSafeJSONInteger)
+		}
 		delete(wanted, definition.Tool.Name)
 	}
 	if len(wanted) != 0 {

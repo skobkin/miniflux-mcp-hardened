@@ -54,6 +54,7 @@ func contentOffsetProperty() map[string]interface{} {
 	return map[string]interface{}{
 		"type":        "integer",
 		"minimum":     0,
+		"maximum":     maximumSafeJSONInteger,
 		"description": "UTF-8 byte offset returned as next_content_offset by a previous call",
 	}
 }
