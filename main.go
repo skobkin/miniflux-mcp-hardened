@@ -45,6 +45,10 @@ type minifluxStartupClient interface {
 }
 
 func NewMinifluxServer(ctx context.Context) (*MinifluxServer, error) {
+	return newMinifluxServer(ctx, slog.Default())
+}
+
+func newMinifluxServer(ctx context.Context, logger *slog.Logger) (*MinifluxServer, error) {
 	cfg, err := loadMinifluxConfig()
 	if err != nil {
 		return nil, err
@@ -54,24 +58,24 @@ func NewMinifluxServer(ctx context.Context) (*MinifluxServer, error) {
 		return nil, err
 	}
 
-	if err := verifyMinifluxStartup(ctx, minifluxClient); err != nil {
+	if err := verifyMinifluxStartup(ctx, minifluxClient, logger); err != nil {
 		return nil, err
 	}
 
 	return &MinifluxServer{client: minifluxClient}, nil
 }
 
-func verifyMinifluxStartup(ctx context.Context, miniflux minifluxStartupClient) error {
+func verifyMinifluxStartup(ctx context.Context, miniflux minifluxStartupClient, logger *slog.Logger) error {
 	if err := miniflux.HealthcheckContext(ctx); err != nil {
 		return errors.New("miniflux healthcheck failed")
 	}
-	slog.Info("miniflux startup check", "check", "health", "outcome", "success")
+	logger.InfoContext(ctx, "miniflux startup check", "check", "health", "outcome", "success")
 
 	user, err := miniflux.MeContext(ctx)
 	if err != nil || user == nil {
 		return errors.New("miniflux authentication failed")
 	}
-	slog.Info("miniflux startup check", "check", "authentication", "outcome", "success")
+	logger.InfoContext(ctx, "miniflux startup check", "check", "authentication", "outcome", "success")
 
 	return nil
 }
@@ -107,7 +111,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	logger.Info("starting miniflux-mcp", "version", Version, "revision", Revision, "build_date", BuildDate)
 
 	startupCtx, cancelStartup := context.WithTimeout(ctx, minifluxStartupTimeout)
-	minifluxServer, err := NewMinifluxServer(startupCtx)
+	minifluxServer, err := newMinifluxServer(startupCtx, logger)
 	cancelStartup()
 	if err != nil {
 		return err
