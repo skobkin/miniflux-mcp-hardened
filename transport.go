@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -27,6 +29,7 @@ const (
 	httpIdleTimeout         = 2 * time.Minute
 	httpMaxHeaderBytes      = 32 << 10
 	httpShutdownTimeout     = 10 * time.Second
+	httpMaximumRequestBody  = 1 << 20
 )
 
 type transportConfig struct {
@@ -172,7 +175,7 @@ func serveStreamableHTTP(ctx context.Context, mcpServer *server.MCPServer, cfg t
 	)
 
 	mux := http.NewServeMux()
-	mux.Handle(cfg.HTTPPath, validateOrigin(cfg.AllowedOrigins, requireBearerToken(cfg.AuthToken, mcpHandler)))
+	mux.Handle(cfg.HTTPPath, validateOrigin(cfg.AllowedOrigins, requireBearerToken(cfg.AuthToken, limitMCPRequestBody(mcpHandler))))
 	mux.HandleFunc("/healthz", healthcheckHTTP)
 
 	httpServer := newHTTPServer(cfg.HTTPAddr, mux)
@@ -182,6 +185,38 @@ func serveStreamableHTTP(ctx context.Context, mcpServer *server.MCPServer, cfg t
 	}
 
 	return serveHTTPServer(ctx, httpServer, listener)
+}
+
+func limitMCPRequestBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.Body == nil {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+		if r.ContentLength > httpMaximumRequestBody {
+			http.Error(w, http.StatusText(http.StatusRequestEntityTooLarge), http.StatusRequestEntityTooLarge)
+
+			return
+		}
+
+		originalBody := r.Body
+		body, err := io.ReadAll(io.LimitReader(originalBody, httpMaximumRequestBody+1))
+		_ = originalBody.Close()
+		if err != nil {
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+
+			return
+		}
+		if len(body) > httpMaximumRequestBody {
+			http.Error(w, http.StatusText(http.StatusRequestEntityTooLarge), http.StatusRequestEntityTooLarge)
+
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		r.ContentLength = int64(len(body))
+		next.ServeHTTP(w, r)
+	})
 }
 
 func newHTTPServer(address string, handler http.Handler) *http.Server {

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -193,6 +195,83 @@ func TestHealthcheckResponseIsMinimal(t *testing.T) {
 	}
 	if response.Header().Get("Content-Type") != "text/plain; charset=utf-8" {
 		t.Fatalf("Content-Type = %q", response.Header().Get("Content-Type"))
+	}
+}
+
+func TestMCPRequestBodyLimit(t *testing.T) {
+	tests := []struct {
+		name          string
+		size          int
+		unknownLength bool
+		wantStatus    int
+	}{
+		{name: "ordinary", size: 128, wantStatus: http.StatusNoContent},
+		{name: "exact limit", size: httpMaximumRequestBody, wantStatus: http.StatusNoContent},
+		{name: "oversized content length", size: httpMaximumRequestBody + 1, wantStatus: http.StatusRequestEntityTooLarge},
+		{name: "oversized chunked", size: httpMaximumRequestBody + 1, unknownLength: true, wantStatus: http.StatusRequestEntityTooLarge},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload := bytes.Repeat([]byte("x"), test.size)
+			handler := limitMCPRequestBody(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Errorf("read accepted body: %v", err)
+				}
+				if !bytes.Equal(body, payload) {
+					t.Errorf("accepted body changed: got %d bytes, want %d", len(body), len(payload))
+				}
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			request := httptest.NewRequest(http.MethodPost, "http://server.example/mcp", bytes.NewReader(payload))
+			if test.unknownLength {
+				request.ContentLength = -1
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d", response.Code, test.wantStatus)
+			}
+		})
+	}
+}
+
+func TestMCPRequestBodyLimitPreservesAuthAndOriginPrecedence(t *testing.T) {
+	const token = "correct-token"
+	handler := validateOrigin(
+		map[string]struct{}{"https://client.example": {}},
+		requireBearerToken(token, limitMCPRequestBody(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}))),
+	)
+	payload := bytes.NewReader(bytes.Repeat([]byte("x"), httpMaximumRequestBody+1))
+
+	unauthorized := httptest.NewRequest(http.MethodPost, "http://server.example/mcp", payload)
+	unauthorizedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(unauthorizedResponse, unauthorized)
+	if unauthorizedResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want 401", unauthorizedResponse.Code)
+	}
+
+	badOrigin := httptest.NewRequest(http.MethodPost, "http://server.example/mcp", bytes.NewReader(bytes.Repeat([]byte("x"), httpMaximumRequestBody+1)))
+	badOrigin.Header.Set("Authorization", "Bearer "+token)
+	badOrigin.Header.Set("Origin", "https://evil.example")
+	badOriginResponse := httptest.NewRecorder()
+	handler.ServeHTTP(badOriginResponse, badOrigin)
+	if badOriginResponse.Code != http.StatusForbidden {
+		t.Fatalf("bad-origin status = %d, want 403", badOriginResponse.Code)
+	}
+}
+
+func TestMCPRequestBodyLimitDoesNotAffectHealthcheck(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", limitMCPRequestBody(http.NotFoundHandler()))
+	mux.HandleFunc("/healthz", healthcheckHTTP)
+	request := httptest.NewRequest(http.MethodPost, "http://server.example/healthz", bytes.NewReader(bytes.Repeat([]byte("x"), httpMaximumRequestBody+1)))
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "ok\n" {
+		t.Fatalf("health response = %d %q", response.Code, response.Body.String())
 	}
 }
 
