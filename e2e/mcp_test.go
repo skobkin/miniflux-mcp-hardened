@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"slices"
@@ -205,7 +206,7 @@ func (c *httpRPCClient) callTool(name string, arguments map[string]any) (string,
 	return "", fmt.Errorf("%s returned no text content", name)
 }
 
-func startStdioMCPServer(t *testing.T, writeTools, clientName string) *rpcClient {
+func startStdioMCPServer(t *testing.T, writeTools, clientName string, extraEnv ...string) *rpcClient {
 	t.Helper()
 	serverPath := os.Getenv("MCP_SERVER_PATH")
 	if serverPath == "" {
@@ -219,6 +220,7 @@ func startStdioMCPServer(t *testing.T, writeTools, clientName string) *rpcClient
 
 	command := exec.Command(serverPath)
 	command.Env = append(os.Environ(), "MCP_WRITE_TOOLS="+writeTools)
+	command.Env = append(command.Env, extraEnv...)
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		t.Fatalf("create server stdin: %v", err)
@@ -359,7 +361,41 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 }
 
 func TestWriteEnabledMCPServerWithMiniflux(t *testing.T) {
-	client := startStdioMCPServer(t, "update_entries_status", "miniflux-mcp-write-ci")
+	updateRequests := make(chan []byte, 1)
+	proxyTransport := &http.Transport{Proxy: nil}
+	t.Cleanup(proxyTransport.CloseIdleConnections)
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && r.URL.Path == "/v1/entries" {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "failed to record request", http.StatusBadGateway)
+				return
+			}
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			updateRequests <- body
+		}
+
+		outbound := r.Clone(r.Context())
+		outbound.RequestURI = ""
+		response, err := proxyTransport.RoundTrip(outbound)
+		if err != nil {
+			http.Error(w, "failed to proxy request", http.StatusBadGateway)
+			return
+		}
+		defer func() {
+			_ = response.Body.Close()
+		}()
+		for name, values := range response.Header {
+			for _, value := range values {
+				w.Header().Add(name, value)
+			}
+		}
+		w.WriteHeader(response.StatusCode)
+		_, _ = io.Copy(w, response.Body)
+	}))
+	defer proxy.Close()
+
+	client := startStdioMCPServer(t, "update_entries_status", "miniflux-mcp-write-ci", "MINIFLUX_PROXY_URL="+proxy.URL)
 
 	var listed struct {
 		Tools []struct {
@@ -398,6 +434,22 @@ func TestWriteEnabledMCPServerWithMiniflux(t *testing.T) {
 	}
 	if status.Updated != 1 || status.Status != "read" {
 		t.Fatalf("bulk status result = %#v", status)
+	}
+
+	var updatePayload struct {
+		EntryIDs []int64 `json:"entry_ids"`
+		Status   string  `json:"status"`
+	}
+	select {
+	case body := <-updateRequests:
+		if err := json.Unmarshal(body, &updatePayload); err != nil {
+			t.Fatalf("decode proxied bulk status request: %v", err)
+		}
+	default:
+		t.Fatal("bulk status tool did not send a request to Miniflux")
+	}
+	if !slices.Equal(updatePayload.EntryIDs, []int64{e2eNonexistentEntryID}) || updatePayload.Status != "read" {
+		t.Fatalf("proxied bulk status request = %#v", updatePayload)
 	}
 }
 
