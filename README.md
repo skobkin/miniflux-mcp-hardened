@@ -12,7 +12,7 @@ This project is a hardened fork of [`tssujt/miniflux-mcp`](https://github.com/ts
 | --- | --- | --- |
 | Tool surface | 40+ API-oriented tools | 14 default read tools and 4 individually opt-in writes |
 | Feeds | Read, create, update, delete, refresh, bulk operations, and icon access | Sanitized reads; only single-feed refresh can be enabled |
-| Entries | Read, save, fetch original content, bulk marking, starring, and status changes including `removed` | Bounded sanitized reads; only selected-entry starring and allowlisted `read`/`unread` changes can be enabled |
+| Entries | Read, save, fetch original content, bulk marking, starring, and status changes including `removed` | Bounded sanitized reads; only explicitly selected entries can be starred or changed to `read`/`unread`, including status updates in batches of up to 100 |
 | Categories | Read, create, update, delete, refresh, and bulk marking | Sanitized reads only |
 | Administration and utilities | User and API-key administration, discovery, export, history flushing, and raw media access | Not exposed; only compact version, health, and counter diagnostics remain |
 | Responses | Miniflux client objects can cross the MCP boundary | Explicit LLM-facing DTOs omit credentials and unnecessary internal fields, including in nested objects |
