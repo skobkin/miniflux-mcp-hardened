@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"sync"
 )
 
 const writeToolsEnvironmentVariable = "MCP_WRITE_TOOLS"
@@ -15,14 +16,14 @@ func (s writeToolSet) contains(name string) bool {
 	return ok
 }
 
-func approvedWriteTools() writeToolSet {
+var approvedWriteTools = sync.OnceValue(func() writeToolSet {
 	result := make(writeToolSet)
 	for _, definition := range (&MinifluxServer{}).writeToolDefinitions() {
 		result[definition.Tool.Name] = struct{}{}
 	}
 
 	return result
-}
+})
 
 func parseWriteTools(value string) (writeToolSet, error) {
 	result := make(writeToolSet)
