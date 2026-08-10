@@ -101,7 +101,7 @@ func TestGetUnreadDigestBuildsBoundedOrderedResponse(t *testing.T) {
 		t.Fatalf("Miniflux calls = %d, want 1", len(fake.entryFilters))
 	}
 	filter := fake.entryFilters[0]
-	if filter.Status != client.EntryStatusUnread || filter.Limit != maximumEntryLimit || filter.Offset != 0 || filter.Order != "published_at" || filter.Direction != "asc" || filter.PublishedAfter != 1700000000 || filter.FeedID != 42 {
+	if filter.Status != client.EntryStatusUnread || filter.Limit != 2 || filter.Offset != 0 || filter.Order != "published_at" || filter.Direction != "asc" || filter.PublishedAfter != 1700000000 || filter.FeedID != 42 {
 		t.Fatalf("Miniflux filter = %#v", filter)
 	}
 }
@@ -125,22 +125,51 @@ func (f *pagedDigestClient) EntriesContext(ctx context.Context, filter *client.F
 	return page, nil
 }
 
+func TestGetUnreadDigestScalesCategoryPageSize(t *testing.T) {
+	pages := []*client.EntryResultSet{
+		{Total: 3, Entries: client.Entries{
+			{ID: 1, Feed: &client.Feed{Category: &client.Category{ID: 2}}},
+		}},
+		{Total: 3, Entries: client.Entries{
+			{ID: 2, Feed: &client.Feed{Category: &client.Category{ID: 1}}},
+			{ID: 3, Feed: &client.Feed{Category: &client.Category{ID: 2}}},
+		}},
+	}
+	fake := &pagedDigestClient{fakeMinifluxClient: &fakeMinifluxClient{}, pages: pages}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+		"limit":        float64(1),
+		"category_ids": []interface{}{float64(1)},
+	}}}
+
+	result, err := (&MinifluxServer{client: fake}).GetUnreadDigest(context.Background(), request)
+	if err != nil || result.IsError {
+		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
+	}
+	if len(fake.entryFilters) != 2 {
+		t.Fatalf("Miniflux calls = %d, want 2", len(fake.entryFilters))
+	}
+	if fake.entryFilters[0].Limit != 1 || fake.entryFilters[1].Limit != 2 {
+		t.Fatalf("Miniflux page limits = [%d %d], want [1 2]", fake.entryFilters[0].Limit, fake.entryFilters[1].Limit)
+	}
+	if fake.entryFilters[0].Offset != 0 || fake.entryFilters[1].Offset != 1 {
+		t.Fatalf("Miniflux page offsets = [%d %d], want [0 1]", fake.entryFilters[0].Offset, fake.entryFilters[1].Offset)
+	}
+}
+
 func TestGetUnreadDigestSortsAcrossCategoryPages(t *testing.T) {
 	publishedAt := time.Date(2026, time.August, 10, 10, 0, 0, 0, time.UTC)
-	pages := make([]*client.EntryResultSet, 2)
-	for pageIndex := range pages {
-		entries := make(client.Entries, maximumEntryLimit)
-		for entryIndex := range entries {
-			entries[entryIndex] = &client.Entry{
-				ID:   int64(1000 + pageIndex*maximumEntryLimit + entryIndex),
-				Date: publishedAt,
-				Feed: &client.Feed{Category: &client.Category{ID: 2}},
-			}
-		}
-		pages[pageIndex] = &client.EntryResultSet{Total: 2 * maximumEntryLimit, Entries: entries}
+	pages := []*client.EntryResultSet{
+		{Total: 6, Entries: client.Entries{
+			{ID: 100, Date: publishedAt, Feed: &client.Feed{Category: &client.Category{ID: 2}}},
+			{ID: 20, Date: publishedAt, Feed: &client.Feed{Category: &client.Category{ID: 1}}},
+		}},
+		{Total: 6, Entries: client.Entries{
+			{ID: 101, Date: publishedAt, Feed: &client.Feed{Category: &client.Category{ID: 2}}},
+			{ID: 102, Date: publishedAt, Feed: &client.Feed{Category: &client.Category{ID: 2}}},
+			{ID: 103, Date: publishedAt, Feed: &client.Feed{Category: &client.Category{ID: 2}}},
+			{ID: 10, Date: publishedAt, Feed: &client.Feed{Category: &client.Category{ID: 1}}},
+		}},
 	}
-	pages[0].Entries[maximumEntryLimit-1] = &client.Entry{ID: 20, Date: publishedAt, Feed: &client.Feed{Category: &client.Category{ID: 1}}}
-	pages[1].Entries[maximumEntryLimit-1] = &client.Entry{ID: 10, Date: publishedAt, Feed: &client.Feed{Category: &client.Category{ID: 1}}}
 	fake := &pagedDigestClient{fakeMinifluxClient: &fakeMinifluxClient{}, pages: pages}
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
 		"limit":        float64(2),
