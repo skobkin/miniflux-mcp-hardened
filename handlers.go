@@ -47,6 +47,10 @@ func integerArgument(arguments map[string]interface{}, name string, required boo
 		return 0, nil
 	}
 
+	return integerValue(value, name, minimum, maximum)
+}
+
+func integerValue(value interface{}, name string, minimum, maximum int64) (int64, *mcp.CallToolResult) {
 	var parsed int64
 	switch number := value.(type) {
 	case float64:
@@ -89,7 +93,7 @@ func integerArrayArgument(arguments map[string]interface{}, name string, maximum
 	result := make([]int64, 0, len(items))
 	seen := make(map[int64]struct{}, len(items))
 	for _, item := range items {
-		id, validationResult := integerArgument(map[string]interface{}{name: item}, name, true, 1, 0)
+		id, validationResult := integerValue(item, name, 1, 0)
 		if validationResult != nil {
 			return nil, validationResult
 		}
