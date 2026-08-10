@@ -88,7 +88,7 @@ Enable any combination of the four non-default tools listed in the catalog:
 MCP_WRITE_TOOLS=update_entry_status,update_entries_status,toggle_starred,refresh_feed
 ```
 
-Names are case-sensitive. Unknown, removed, or empty list elements fail startup, and disabled write tools are omitted from MCP registration entirely.
+Names are case-sensitive. Unknown, disallowed, or empty list elements fail startup, and disabled write tools are omitted from MCP registration entirely.
 
 Configured browser origins must be exact `http://host[:port]` or `https://host[:port]` values without paths, credentials, queries, fragments, or wildcards. Scheme/host case and default ports are normalized. Requests without `Origin`, including ordinary non-browser MCP clients, remain usable. Authentication tokens with outer whitespace or newlines are rejected at startup.
 
