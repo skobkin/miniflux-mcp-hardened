@@ -32,4 +32,6 @@ ENV MCP_TRANSPORT=streamable-http
 
 EXPOSE 8080
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["/miniflux-mcp", "healthcheck"]
+
 ENTRYPOINT ["/miniflux-mcp"]

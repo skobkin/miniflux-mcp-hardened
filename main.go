@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -79,18 +80,29 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	slog.SetDefault(logger)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	if err := run(ctx, os.Args[1:], logger); err != nil {
+		stop()
+		logger.Error("miniflux-mcp stopped", "error", err)
+		os.Exit(1)
+	}
+	stop()
+}
+
+func run(ctx context.Context, args []string, logger *slog.Logger) error {
+	if len(args) == 1 && args[0] == "healthcheck" {
+		return runHealthcheck(ctx)
+	}
+	if len(args) != 0 {
+		return fmt.Errorf("usage: miniflux-mcp [healthcheck]")
+	}
 
 	transport, err := loadTransportConfig()
 	if err != nil {
-		stop()
-		logger.Error("invalid transport configuration", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("invalid transport configuration: %w", err)
 	}
 	enabledWrites, err := parseWriteTools(os.Getenv(writeToolsEnvironmentVariable))
 	if err != nil {
-		stop()
-		logger.Error("invalid write-tool configuration", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("invalid write-tool configuration: %w", err)
 	}
 	logger.Info("starting miniflux-mcp", "version", Version, "revision", Revision, "build_date", BuildDate)
 
@@ -98,9 +110,7 @@ func main() {
 	minifluxServer, err := NewMinifluxServer(startupCtx)
 	cancelStartup()
 	if err != nil {
-		stop()
-		logger.Error("miniflux startup failed", "error", err)
-		os.Exit(1)
+		return err
 	}
 	mcpServer := server.NewMCPServer(
 		"miniflux-mcp",
@@ -111,9 +121,8 @@ func main() {
 	minifluxServer.RegisterTools(mcpServer, enabledWrites)
 
 	if err := serveMCP(ctx, mcpServer, transport); err != nil {
-		stop()
-		logger.Error("server failed", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("server failed: %w", err)
 	}
-	stop()
+
+	return nil
 }

@@ -182,6 +182,8 @@ services:
 
 The container image defaults to Streamable HTTP; set `MCP_AUTH_TOKEN` or startup fails. Clients send `Authorization: Bearer <token>`. Request reads and header sizes are bounded; response writes remain unbounded because Streamable HTTP may use long-lived SSE streams. SIGTERM and SIGINT trigger a bounded graceful shutdown. `/healthz` is intentionally unauthenticated and returns only `ok`.
 
+The scratch image uses an exec-form `HEALTHCHECK` that runs `/miniflux-mcp healthcheck` without a shell or extra runtime packages. In Streamable HTTP mode it probes the local `/healthz` endpoint. In STDIO mode it validates configuration and performs a bounded Miniflux health probe, so the absence of an HTTP listener does not make STDIO containers permanently unhealthy. The command returns conventional exit status and does not print secrets or require a writable filesystem.
+
 ## Continuous integration and releases
 
 Woodpecker CI runs formatting, lint, vet, unit, race, build, and end-to-end checks for pushes and pull requests targeting `main`. The end-to-end suite covers both STDIO and authenticated Streamable HTTP.

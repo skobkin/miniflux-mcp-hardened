@@ -1,4 +1,21 @@
 services:
+  miniflux-mcp:
+    build:
+      context: ..
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      miniflux:
+        condition: service_healthy
+    environment:
+      MINIFLUX_URL: http://miniflux:8080
+      MINIFLUX_USERNAME: admin
+      MINIFLUX_PASSWORD: test123
+      MCP_AUTH_TOKEN: e2e-secret
+
   miniflux:
     image: miniflux/miniflux:2.3.3
     ports:

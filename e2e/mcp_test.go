@@ -338,6 +338,12 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 	if digest.Entries == nil || digest.AckEntryIDs == nil {
 		t.Fatalf("get_unread_digest returned null collections: %s", digestText)
 	}
+
+	healthCommand := exec.Command(serverPath, "healthcheck")
+	healthCommand.Env = append(os.Environ(), "MCP_TRANSPORT=stdio")
+	if output, err := healthCommand.CombinedOutput(); err != nil {
+		t.Fatalf("stdio healthcheck command failed: %v\n%s", err, output)
+	}
 }
 
 func TestRemoteMCPServerWithMiniflux(t *testing.T) {
@@ -492,5 +498,17 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 		if slices.Contains(toolNames, name) {
 			t.Fatalf("remote tools/list unexpectedly included disabled write tool %q", name)
 		}
+	}
+
+	healthCommand := exec.Command(serverPath, "healthcheck")
+	healthCommand.Env = append(os.Environ(),
+		"MCP_TRANSPORT=streamable-http",
+		"MCP_HTTP_ADDR="+address,
+		"MCP_HTTP_PATH=/mcp",
+		"MCP_AUTH_TOKEN="+token,
+		"MCP_ALLOWED_ORIGINS=",
+	)
+	if output, err := healthCommand.CombinedOutput(); err != nil {
+		t.Fatalf("streamable HTTP healthcheck command failed: %v\n%s", err, output)
 	}
 }
