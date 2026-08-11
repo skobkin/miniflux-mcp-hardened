@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -96,6 +97,22 @@ func TestEachAllowedWriteToolCanBeEnabled(t *testing.T) {
 				t.Fatalf("registered %d tools, want 15", len(names))
 			}
 		})
+	}
+}
+
+func TestAgentSkillMentionsEveryTool(t *testing.T) {
+	content, err := os.ReadFile("skills/miniflux-mcp-triage/SKILL.md")
+	if err != nil {
+		t.Fatalf("read agent skill: %v", err)
+	}
+
+	server := &MinifluxServer{}
+	definitions := append(server.readToolDefinitions(), server.writeToolDefinitions()...)
+	for _, definition := range definitions {
+		name := definition.Tool.Name
+		if !strings.Contains(string(content), "`"+name+"`") {
+			t.Errorf("agent skill does not mention tool %q", name)
+		}
 	}
 }
 
