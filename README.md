@@ -64,6 +64,10 @@ Single-entry tools replace invalid backend UTF-8 and return a content chunk with
 
 Subscription `feed_url`, Miniflux user IDs, credentials, cookies, fetch/proxy settings, integration URLs, share codes, internal hashes, icons, and enclosures are intentionally absent. Version and counter tools return compact purpose-specific objects.
 
+## Agent skill
+
+A reusable [Miniflux MCP triage skill](skills/miniflux-mcp-triage/SKILL.md) is provided for agents that safely inspect and process unread entries.
+
 ## Configuration
 
 | Variable | Description | Default / requirement |
