@@ -1,6 +1,12 @@
 ---
 name: miniflux-mcp-triage
-description: Triage, summarize, and process Miniflux unread entries via the hardened MCP toolset.
+description: Triage and process unread Miniflux entries safely.
+version: 2.2.0
+author: skobkin
+license: MIT
+metadata:
+  hermes:
+    tags: [miniflux, rss, mcp, triage]
 ---
 
 # Miniflux MCP Triage
