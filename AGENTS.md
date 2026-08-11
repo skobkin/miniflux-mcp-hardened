@@ -127,6 +127,12 @@ Avoid:
 
 A new tool should have a concrete agent use case and a security review of both its inputs and outputs.
 
+## Agent Skill
+
+The repository-maintained `skills/miniflux-mcp-triage/SKILL.md` is product guidance for agents using this server, not an example or generated artifact.
+
+Keep the skill relevant when significant code changes affect exposed tools, input schemas, response fields, limits, write-tool policy, or safe agent workflows. Update it in the same change, and ensure added, renamed, or removed tools remain covered with appropriate graceful-degradation guidance.
+
 ## Coding Style
 
 * Language: Go. Follow the version declared in `go.mod`.
