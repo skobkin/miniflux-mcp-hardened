@@ -15,7 +15,8 @@ import (
 )
 
 type MinifluxServer struct {
-	client minifluxClient
+	client                minifluxClient
+	toolHandlerMiddleware server.ToolHandlerMiddleware
 }
 
 const minifluxStartupTimeout = 15 * time.Second
@@ -53,23 +54,47 @@ func newMinifluxServer(ctx context.Context, logger *slog.Logger) (*MinifluxServe
 	if err != nil {
 		return nil, err
 	}
-	minifluxClient, err := newMinifluxAPIClient(cfg)
+
+	return newMinifluxServerWithConfig(ctx, logger, cfg)
+}
+
+func newMinifluxServerWithConfig(ctx context.Context, logger *slog.Logger, cfg minifluxConfig) (*MinifluxServer, error) {
+	httpClient, err := newMinifluxHTTPClient(cfg.ProxyURL)
 	if err != nil {
 		return nil, err
 	}
+	startupClient := newMinifluxAPIClientWithHTTPClient(cfg, httpClient)
 
-	if err := verifyMinifluxStartup(ctx, minifluxClient, logger); err != nil {
+	if cfg.CredentialSource == minifluxCredentialSourceHeader {
+		if err := verifyMinifluxHealth(ctx, startupClient, logger); err != nil {
+			return nil, err
+		}
+
+		return &MinifluxServer{
+			client:                requestScopedMinifluxClient{},
+			toolHandlerMiddleware: newRequestMinifluxClientMiddleware(cfg.BaseURL, httpClient),
+		}, nil
+	}
+	if err := verifyMinifluxStartup(ctx, startupClient, logger); err != nil {
 		return nil, err
 	}
 
-	return &MinifluxServer{client: minifluxClient}, nil
+	return &MinifluxServer{client: startupClient}, nil
 }
 
-func verifyMinifluxStartup(ctx context.Context, miniflux minifluxStartupClient, logger *slog.Logger) error {
+func verifyMinifluxHealth(ctx context.Context, miniflux minifluxStartupClient, logger *slog.Logger) error {
 	if err := miniflux.HealthcheckContext(ctx); err != nil {
 		return errors.New("miniflux healthcheck failed")
 	}
 	logger.InfoContext(ctx, "miniflux startup check", "check", "health", "outcome", "success")
+
+	return nil
+}
+
+func verifyMinifluxStartup(ctx context.Context, miniflux minifluxStartupClient, logger *slog.Logger) error {
+	if err := verifyMinifluxHealth(ctx, miniflux, logger); err != nil {
+		return err
+	}
 
 	user, err := miniflux.MeContext(ctx)
 	if err != nil || user == nil {
@@ -108,10 +133,17 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("invalid write-tool configuration: %w", err)
 	}
+	minifluxCfg, err := loadMinifluxConfig()
+	if err != nil {
+		return err
+	}
+	if err := validateMinifluxCredentialTransport(minifluxCfg, transport); err != nil {
+		return err
+	}
 	logger.Info("starting miniflux-mcp", "version", Version, "revision", Revision, "build_date", BuildDate)
 
 	startupCtx, cancelStartup := context.WithTimeout(ctx, minifluxStartupTimeout)
-	minifluxServer, err := newMinifluxServer(startupCtx, logger)
+	minifluxServer, err := newMinifluxServerWithConfig(startupCtx, logger, minifluxCfg)
 	cancelStartup()
 	if err != nil {
 		return err
@@ -124,8 +156,16 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	)
 	minifluxServer.RegisterTools(mcpServer, enabledWrites)
 
-	if err := serveMCP(ctx, mcpServer, transport); err != nil {
+	if err := serveMCP(ctx, mcpServer, transport, minifluxCfg.CredentialSource); err != nil {
 		return fmt.Errorf("server failed: %w", err)
+	}
+
+	return nil
+}
+
+func validateMinifluxCredentialTransport(miniflux minifluxConfig, transport transportConfig) error {
+	if miniflux.CredentialSource == minifluxCredentialSourceHeader && transport.Transport != transportStreamableHTTP {
+		return fmt.Errorf("MINIFLUX_CREDENTIAL_SOURCE=%s requires MCP_TRANSPORT=%s", minifluxCredentialSourceHeader, transportStreamableHTTP)
 	}
 
 	return nil

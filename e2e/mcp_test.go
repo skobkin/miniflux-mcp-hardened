@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	miniflux "miniflux.app/v2/client"
 )
 
 type rpcClient struct {
@@ -50,10 +52,11 @@ type initializeResult struct {
 }
 
 type httpRPCClient struct {
-	endpoint string
-	token    string
-	client   *http.Client
-	nextID   int
+	endpoint      string
+	token         string
+	minifluxToken string
+	client        *http.Client
+	nextID        int
 }
 
 const (
@@ -154,6 +157,9 @@ func (c *httpRPCClient) send(request map[string]any, expectedStatus int, result 
 		return fmt.Errorf("create %s request: %w", request["method"], err)
 	}
 	httpRequest.Header.Set("Authorization", "Bearer "+c.token)
+	if c.minifluxToken != "" {
+		httpRequest.Header.Set("X-Miniflux-Token", c.minifluxToken)
+	}
 	httpRequest.Header.Set("Content-Type", "application/json")
 
 	response, err := c.client.Do(httpRequest)
@@ -652,4 +658,149 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 	if output, err := healthCommand.CombinedOutput(); err != nil {
 		t.Fatalf("streamable HTTP healthcheck command failed: %v\n%s", err, output)
 	}
+}
+
+func TestRemoteMCPServerWithDynamicMinifluxCredentials(t *testing.T) {
+	serverPath := os.Getenv("MCP_SERVER_PATH")
+	if serverPath == "" {
+		t.Fatal("MCP_SERVER_PATH is required")
+	}
+	for _, name := range []string{"MINIFLUX_URL", "MINIFLUX_USERNAME", "MINIFLUX_PASSWORD"} {
+		if os.Getenv(name) == "" {
+			t.Fatalf("%s is required", name)
+		}
+	}
+
+	admin := miniflux.NewClient(os.Getenv("MINIFLUX_URL"), os.Getenv("MINIFLUX_USERNAME"), os.Getenv("MINIFLUX_PASSWORD"))
+	apiKey, err := admin.CreateAPIKey("miniflux-mcp dynamic auth e2e")
+	if err != nil {
+		t.Fatalf("create temporary Miniflux API key: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := admin.DeleteAPIKey(apiKey.ID); err != nil {
+			t.Errorf("delete temporary Miniflux API key: %v", err)
+		}
+	})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve HTTP port: %v", err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("release HTTP port: %v", err)
+	}
+
+	const mcpToken = "e2e-dynamic-mcp-secret"
+	command := exec.Command(serverPath)
+	command.Env = environmentWithOverrides(
+		"MCP_TRANSPORT=streamable-http",
+		"MCP_HTTP_ADDR="+address,
+		"MCP_HTTP_PATH=/mcp",
+		"MCP_AUTH_TOKEN="+mcpToken,
+		"MCP_ALLOWED_ORIGINS=",
+		"MCP_WRITE_TOOLS=",
+		"MINIFLUX_CREDENTIAL_SOURCE=header",
+		"MINIFLUX_API_KEY=",
+		"MINIFLUX_USERNAME=",
+		"MINIFLUX_PASSWORD=",
+	)
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	if err := command.Start(); err != nil {
+		t.Fatalf("start dynamic remote MCP server: %v", err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- command.Wait()
+	}()
+	t.Cleanup(func() {
+		if command.ProcessState == nil {
+			_ = command.Process.Signal(os.Interrupt)
+		}
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			_ = command.Process.Kill()
+			<-done
+			t.Errorf("dynamic remote MCP server did not stop after interrupt")
+		}
+	})
+
+	baseURL := "http://" + address
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		response, requestErr := httpClient.Get(baseURL + "/healthz")
+		if requestErr == nil {
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("dynamic remote MCP server did not become healthy: %v\n%s", requestErr, stderr.String())
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	missingRequest, err := http.NewRequest(http.MethodPost, baseURL+"/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
+	if err != nil {
+		t.Fatalf("create missing-key request: %v", err)
+	}
+	missingRequest.Header.Set("Authorization", "Bearer "+mcpToken)
+	missingRequest.Header.Set("Content-Type", "application/json")
+	missingResponse, err := httpClient.Do(missingRequest)
+	if err != nil {
+		t.Fatalf("send missing-key request: %v", err)
+	}
+	_ = missingResponse.Body.Close()
+	if missingResponse.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing-key request returned HTTP %d, want 400", missingResponse.StatusCode)
+	}
+
+	client := &httpRPCClient{
+		endpoint:      baseURL + "/mcp",
+		token:         mcpToken,
+		minifluxToken: apiKey.Token,
+		client:        httpClient,
+	}
+	var initialized initializeResult
+	if err := client.request("initialize", map[string]any{
+		"protocolVersion": "2024-11-05",
+		"capabilities":    map[string]any{},
+		"clientInfo": map[string]any{
+			"name":    "miniflux-mcp-dynamic-http-ci",
+			"version": "1.0.0",
+		},
+	}, &initialized); err != nil {
+		t.Fatalf("initialize dynamic MCP request: %v\n%s", err, stderr.String())
+	}
+	if _, err := client.callTool("get_version", map[string]any{}); err != nil {
+		t.Fatalf("call authenticated dynamic tool: %v", err)
+	}
+
+	client.minifluxToken = "invalid-e2e-miniflux-token"
+	if _, err := client.callTool("get_categories", map[string]any{}); err == nil || !strings.Contains(err.Error(), "Miniflux authentication failed") || strings.Contains(err.Error(), client.minifluxToken) {
+		t.Fatalf("invalid dynamic credential error = %v", err)
+	}
+}
+
+func environmentWithOverrides(overrides ...string) []string {
+	replaced := make(map[string]struct{}, len(overrides))
+	for _, override := range overrides {
+		name, _, _ := strings.Cut(override, "=")
+		replaced[name] = struct{}{}
+	}
+
+	environment := make([]string, 0, len(os.Environ())+len(overrides))
+	for _, value := range os.Environ() {
+		name, _, _ := strings.Cut(value, "=")
+		if _, replace := replaced[name]; !replace {
+			environment = append(environment, value)
+		}
+	}
+
+	return append(environment, overrides...)
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -165,6 +166,74 @@ func TestHTTPOriginAndBearerProtection(t *testing.T) {
 				t.Fatalf("Vary = %q, want %q", actual, wantVary)
 			}
 		})
+	}
+}
+
+func TestHTTPProtectionPrecedenceIncludesDynamicCredentials(t *testing.T) {
+	const (
+		mcpToken      = "mcp-token"
+		minifluxToken = "miniflux-token"
+		allowedOrigin = "https://client.example"
+	)
+	handler := validateOrigin(
+		map[string]struct{}{allowedOrigin: {}},
+		requireBearerToken(mcpToken,
+			enforceMinifluxCredentialHeaders(minifluxCredentialSourceHeader,
+				limitMCPRequestBody(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusNoContent)
+				})),
+			),
+		),
+	)
+
+	tests := []struct {
+		name          string
+		origin        string
+		mcpToken      string
+		minifluxToken string
+		bodySize      int
+		wantStatus    int
+	}{
+		{name: "origin first", origin: "https://evil.example", wantStatus: http.StatusForbidden},
+		{name: "MCP bearer second", origin: allowedOrigin, wantStatus: http.StatusUnauthorized},
+		{name: "Miniflux header third", origin: allowedOrigin, mcpToken: mcpToken, wantStatus: http.StatusBadRequest},
+		{name: "body limit fourth", origin: allowedOrigin, mcpToken: mcpToken, minifluxToken: minifluxToken, bodySize: httpMaximumRequestBody + 1, wantStatus: http.StatusRequestEntityTooLarge},
+		{name: "accepted", origin: allowedOrigin, mcpToken: mcpToken, minifluxToken: minifluxToken, bodySize: 32, wantStatus: http.StatusNoContent},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "http://server.example/mcp", bytes.NewReader(bytes.Repeat([]byte("x"), test.bodySize)))
+			request.Header.Set("Origin", test.origin)
+			if test.mcpToken != "" {
+				request.Header.Set("Authorization", "Bearer "+test.mcpToken)
+			}
+			if test.minifluxToken != "" {
+				request.Header.Set(minifluxTokenHeader, test.minifluxToken)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d", response.Code, test.wantStatus)
+			}
+		})
+	}
+}
+
+func TestDynamicCredentialCORSPreflight(t *testing.T) {
+	handler := validateOrigin(map[string]struct{}{"https://client.example": {}}, http.NotFoundHandler())
+	request := httptest.NewRequest(http.MethodOptions, "http://server.example/mcp", nil)
+	request.Header.Set("Origin", "https://client.example")
+	request.Header.Set("Access-Control-Request-Headers", "authorization,x-miniflux-token")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", response.Code)
+	}
+	if allowed := response.Header().Get("Access-Control-Allow-Headers"); !strings.Contains(allowed, minifluxTokenHeader) {
+		t.Fatalf("Access-Control-Allow-Headers = %q, want %s", allowed, minifluxTokenHeader)
 	}
 }
 

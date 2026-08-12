@@ -157,25 +157,25 @@ func envOrDefault(name, fallback string) string {
 	return fallback
 }
 
-func serveMCP(ctx context.Context, mcpServer *server.MCPServer, cfg transportConfig) error {
+func serveMCP(ctx context.Context, mcpServer *server.MCPServer, cfg transportConfig, credentialSource string) error {
 	switch cfg.Transport {
 	case transportStdio:
 		return server.ServeStdio(mcpServer)
 	case transportStreamableHTTP:
-		return serveStreamableHTTP(ctx, mcpServer, cfg)
+		return serveStreamableHTTP(ctx, mcpServer, cfg, credentialSource)
 	default:
 		return fmt.Errorf("unsupported MCP transport %q", cfg.Transport)
 	}
 }
 
-func serveStreamableHTTP(ctx context.Context, mcpServer *server.MCPServer, cfg transportConfig) error {
+func serveStreamableHTTP(ctx context.Context, mcpServer *server.MCPServer, cfg transportConfig, credentialSource string) error {
 	mcpHandler := server.NewStreamableHTTPServer(
 		mcpServer,
 		server.WithStateLess(true),
 	)
 
 	mux := http.NewServeMux()
-	mux.Handle(cfg.HTTPPath, validateOrigin(cfg.AllowedOrigins, requireBearerToken(cfg.AuthToken, limitMCPRequestBody(mcpHandler))))
+	mux.Handle(cfg.HTTPPath, validateOrigin(cfg.AllowedOrigins, requireBearerToken(cfg.AuthToken, enforceMinifluxCredentialHeaders(credentialSource, limitMCPRequestBody(mcpHandler)))))
 	mux.HandleFunc("/healthz", healthcheckHTTP)
 
 	httpServer := newHTTPServer(cfg.HTTPAddr, mux)
@@ -299,7 +299,7 @@ func validateOrigin(allowedOrigins map[string]struct{}, next http.Handler) http.
 		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Last-Event-ID, Mcp-Protocol-Version, Mcp-Session-Id")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Last-Event-ID, Mcp-Protocol-Version, Mcp-Session-Id, X-Miniflux-Token")
 			w.Header().Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
 

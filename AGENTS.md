@@ -91,6 +91,9 @@ For Streamable HTTP:
 * require authentication;
 * validate `Origin` where applicable;
 * do not weaken existing Bearer-token protection;
+* keep MCP Bearer authentication separate from any per-request Miniflux credential;
+* in dynamic credential mode, keep Miniflux tokens request-scoped and never cache, log, or bind them to an MCP session;
+* reject client-supplied Miniflux URLs and native `X-Auth-Token` headers;
 * use HTTPS when traffic leaves a trusted private network;
 * avoid exposing the listener more broadly than required.
 

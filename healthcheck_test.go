@@ -99,6 +99,20 @@ func TestRunHealthcheckStdioHidesBackendFailure(t *testing.T) {
 	}
 }
 
+func TestRunHealthcheckStdioRejectsHeaderCredentialSource(t *testing.T) {
+	t.Setenv("MCP_TRANSPORT", transportStdio)
+	t.Setenv("MINIFLUX_URL", "https://miniflux.example")
+	t.Setenv(minifluxCredentialSourceEnvironmentVariable, minifluxCredentialSourceHeader)
+	t.Setenv("MINIFLUX_API_KEY", "")
+	t.Setenv("MINIFLUX_USERNAME", "")
+	t.Setenv("MINIFLUX_PASSWORD", "")
+	t.Setenv("MINIFLUX_PROXY_URL", "")
+
+	if err := runHealthcheck(context.Background()); err == nil || err.Error() != "healthcheck configuration is invalid" {
+		t.Fatalf("runHealthcheck error = %v, want generic configuration error", err)
+	}
+}
+
 func TestProbeHTTPHealthUsesCallerDeadline(t *testing.T) {
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()

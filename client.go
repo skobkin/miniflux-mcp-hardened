@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -14,27 +15,46 @@ import (
 
 const minifluxRequestTimeout = 30 * time.Second
 
+const (
+	minifluxCredentialSourceEnvironmentVariable = "MINIFLUX_CREDENTIAL_SOURCE" // #nosec G101 -- environment variable name, not a credential value
+	minifluxCredentialSourceConfig              = "config"
+	minifluxCredentialSourceHeader              = "header"
+)
+
+var errMinifluxRedirect = errors.New("miniflux API redirects are not allowed")
+
 type minifluxConfig struct {
-	BaseURL  string
-	APIKey   string
-	Username string
-	Password string
-	ProxyURL string
+	BaseURL          string
+	APIKey           string
+	Username         string
+	Password         string
+	ProxyURL         string
+	CredentialSource string
 }
 
 func loadMinifluxConfig() (minifluxConfig, error) {
 	cfg := minifluxConfig{
-		BaseURL:  os.Getenv("MINIFLUX_URL"),
-		APIKey:   os.Getenv("MINIFLUX_API_KEY"),
-		Username: os.Getenv("MINIFLUX_USERNAME"),
-		Password: os.Getenv("MINIFLUX_PASSWORD"),
-		ProxyURL: os.Getenv("MINIFLUX_PROXY_URL"),
+		BaseURL:          os.Getenv("MINIFLUX_URL"),
+		APIKey:           os.Getenv("MINIFLUX_API_KEY"),
+		Username:         os.Getenv("MINIFLUX_USERNAME"),
+		Password:         os.Getenv("MINIFLUX_PASSWORD"),
+		ProxyURL:         os.Getenv("MINIFLUX_PROXY_URL"),
+		CredentialSource: envOrDefault(minifluxCredentialSourceEnvironmentVariable, minifluxCredentialSourceConfig),
 	}
 	if cfg.BaseURL == "" {
 		return minifluxConfig{}, fmt.Errorf("MINIFLUX_URL environment variable is required")
 	}
-	if cfg.APIKey == "" && (cfg.Username == "" || cfg.Password == "") {
-		return minifluxConfig{}, fmt.Errorf("either MINIFLUX_API_KEY or both MINIFLUX_USERNAME and MINIFLUX_PASSWORD must be set")
+	switch cfg.CredentialSource {
+	case minifluxCredentialSourceConfig:
+		if cfg.APIKey == "" && (cfg.Username == "" || cfg.Password == "") {
+			return minifluxConfig{}, fmt.Errorf("either MINIFLUX_API_KEY or both MINIFLUX_USERNAME and MINIFLUX_PASSWORD must be set when MINIFLUX_CREDENTIAL_SOURCE=%s", minifluxCredentialSourceConfig)
+		}
+	case minifluxCredentialSourceHeader:
+		if cfg.APIKey != "" || cfg.Username != "" || cfg.Password != "" {
+			return minifluxConfig{}, fmt.Errorf("MINIFLUX_API_KEY, MINIFLUX_USERNAME, and MINIFLUX_PASSWORD must be unset when MINIFLUX_CREDENTIAL_SOURCE=%s", minifluxCredentialSourceHeader)
+		}
+	default:
+		return minifluxConfig{}, fmt.Errorf("unsupported MINIFLUX_CREDENTIAL_SOURCE %q (supported: %s, %s)", cfg.CredentialSource, minifluxCredentialSourceConfig, minifluxCredentialSourceHeader)
 	}
 	if cfg.ProxyURL != "" {
 		if err := validateMinifluxProxyURL(cfg.ProxyURL); err != nil {
@@ -50,14 +70,23 @@ func newMinifluxAPIClient(cfg minifluxConfig) (*client.Client, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return newMinifluxAPIClientWithHTTPClient(cfg, httpClient), nil
+}
+
+func newMinifluxAPIClientWithHTTPClient(cfg minifluxConfig, httpClient *http.Client) *client.Client {
 	options := []client.Option{client.WithHTTPClient(httpClient)}
 	if cfg.APIKey != "" {
 		options = append(options, client.WithAPIKey(cfg.APIKey))
-	} else {
+	} else if cfg.Username != "" && cfg.Password != "" {
 		options = append(options, client.WithCredentials(cfg.Username, cfg.Password))
 	}
 
-	return client.NewClientWithOptions(cfg.BaseURL, options...), nil
+	return client.NewClientWithOptions(cfg.BaseURL, options...)
+}
+
+func newMinifluxAPIKeyClient(baseURL, apiKey string, httpClient *http.Client) *client.Client {
+	return client.NewClientWithOptions(baseURL, client.WithHTTPClient(httpClient), client.WithAPIKey(apiKey))
 }
 
 func newMinifluxHTTPClient(proxyValue string) (*http.Client, error) {
@@ -79,7 +108,13 @@ func newMinifluxHTTPClient(proxyValue string) (*http.Client, error) {
 		}
 	}
 
-	return &http.Client{Transport: transport, Timeout: minifluxRequestTimeout}, nil
+	return &http.Client{
+		Transport: transport,
+		Timeout:   minifluxRequestTimeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return errMinifluxRedirect
+		},
+	}, nil
 }
 
 func validateMinifluxProxyURL(value string) error {

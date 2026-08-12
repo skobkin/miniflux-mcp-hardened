@@ -146,3 +146,77 @@ func TestLoadMinifluxConfigValidatesProxy(t *testing.T) {
 		t.Fatal("loadMinifluxConfig accepted unsupported proxy")
 	}
 }
+
+func TestLoadMinifluxConfigCredentialSources(t *testing.T) {
+	tests := []struct {
+		name             string
+		credentialSource string
+		apiKey           string
+		username         string
+		password         string
+		wantSource       string
+		wantError        bool
+	}{
+		{name: "default configured API key", apiKey: "api-key", wantSource: minifluxCredentialSourceConfig},
+		{name: "configured basic", credentialSource: minifluxCredentialSourceConfig, username: "user", password: "password", wantSource: minifluxCredentialSourceConfig},
+		{name: "header", credentialSource: minifluxCredentialSourceHeader, wantSource: minifluxCredentialSourceHeader},
+		{name: "header rejects API key", credentialSource: minifluxCredentialSourceHeader, apiKey: "api-key", wantError: true},
+		{name: "header rejects username", credentialSource: minifluxCredentialSourceHeader, username: "user", wantError: true},
+		{name: "header rejects password", credentialSource: minifluxCredentialSourceHeader, password: "password", wantError: true},
+		{name: "configured missing credentials", credentialSource: minifluxCredentialSourceConfig, wantError: true},
+		{name: "configured incomplete basic", credentialSource: minifluxCredentialSourceConfig, username: "user", wantError: true},
+		{name: "unknown", credentialSource: "dynamic", wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("MINIFLUX_URL", "https://miniflux.example")
+			t.Setenv(minifluxCredentialSourceEnvironmentVariable, test.credentialSource)
+			t.Setenv("MINIFLUX_API_KEY", test.apiKey)
+			t.Setenv("MINIFLUX_USERNAME", test.username)
+			t.Setenv("MINIFLUX_PASSWORD", test.password)
+			t.Setenv("MINIFLUX_PROXY_URL", "")
+
+			cfg, err := loadMinifluxConfig()
+			if test.wantError {
+				if err == nil {
+					t.Fatalf("loadMinifluxConfig succeeded: %#v", cfg)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("loadMinifluxConfig: %v", err)
+			}
+			if cfg.CredentialSource != test.wantSource {
+				t.Fatalf("credential source = %q, want %q", cfg.CredentialSource, test.wantSource)
+			}
+		})
+	}
+}
+
+func TestValidateMinifluxCredentialTransport(t *testing.T) {
+	tests := []struct {
+		name             string
+		credentialSource string
+		transport        string
+		wantError        bool
+	}{
+		{name: "configured stdio", credentialSource: minifluxCredentialSourceConfig, transport: transportStdio},
+		{name: "configured HTTP", credentialSource: minifluxCredentialSourceConfig, transport: transportStreamableHTTP},
+		{name: "header HTTP", credentialSource: minifluxCredentialSourceHeader, transport: transportStreamableHTTP},
+		{name: "header rejects stdio", credentialSource: minifluxCredentialSourceHeader, transport: transportStdio, wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateMinifluxCredentialTransport(
+				minifluxConfig{CredentialSource: test.credentialSource},
+				transportConfig{Transport: test.transport},
+			)
+			if (err != nil) != test.wantError {
+				t.Fatalf("validateMinifluxCredentialTransport error = %v, wantError = %t", err, test.wantError)
+			}
+		})
+	}
+}

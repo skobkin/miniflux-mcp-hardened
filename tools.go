@@ -198,6 +198,10 @@ func (s *MinifluxServer) toolDefinitions(enabledWrites writeToolSet) []ToolDefin
 
 func (s *MinifluxServer) RegisterTools(mcpServer *server.MCPServer, enabledWrites writeToolSet) {
 	for _, definition := range s.toolDefinitions(enabledWrites) {
-		mcpServer.AddTool(definition.Tool, definition.Handler)
+		handler := definition.Handler
+		if s.toolHandlerMiddleware != nil {
+			handler = s.toolHandlerMiddleware(handler)
+		}
+		mcpServer.AddTool(definition.Tool, handler)
 	}
 }

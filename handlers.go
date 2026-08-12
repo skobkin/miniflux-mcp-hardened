@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -36,6 +37,14 @@ var (
 
 func toolErrorResult(message string) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultError(message), nil
+}
+
+func backendToolErrorResult(err error, fallback string) (*mcp.CallToolResult, error) {
+	if errors.Is(err, client.ErrNotAuthorized) {
+		return toolErrorResult("Miniflux authentication failed")
+	}
+
+	return toolErrorResult(fallback)
 }
 
 func argumentsMap(request mcp.CallToolRequest) (map[string]interface{}, *mcp.CallToolResult) {
@@ -229,7 +238,7 @@ func encodedToolResultSize(result *mcp.CallToolResult) (int, error) {
 func (s *MinifluxServer) GetFeeds(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	feeds, err := s.client.FeedsContext(ctx)
 	if err != nil {
-		return toolErrorResult("failed to fetch feeds")
+		return backendToolErrorResult(err, "failed to fetch feeds")
 	}
 
 	return marshalToolResult(toMCPFeeds(feeds))
@@ -246,7 +255,7 @@ func (s *MinifluxServer) GetFeed(ctx context.Context, request mcp.CallToolReques
 	}
 	feed, err := s.client.FeedContext(ctx, feedID)
 	if err != nil {
-		return toolErrorResult("failed to fetch feed")
+		return backendToolErrorResult(err, "failed to fetch feed")
 	}
 
 	return marshalToolResult(toMCPFeed(feed))
@@ -361,7 +370,7 @@ func (s *MinifluxServer) GetEntries(ctx context.Context, request mcp.CallToolReq
 	}
 	entries, err := s.client.EntriesContext(ctx, filter)
 	if err != nil {
-		return toolErrorResult("failed to fetch entries")
+		return backendToolErrorResult(err, "failed to fetch entries")
 	}
 
 	return marshalToolResult(toMCPEntryResultSet(entries))
@@ -435,7 +444,7 @@ func (s *MinifluxServer) GetUnreadDigest(ctx context.Context, request mcp.CallTo
 		}
 		entries, err := s.client.EntriesContext(ctx, filter)
 		if err != nil || entries == nil {
-			return toolErrorResult("failed to fetch unread digest")
+			return backendToolErrorResult(err, "failed to fetch unread digest")
 		}
 		pageCount := len(entries.Entries)
 		if pageCount == 0 {
@@ -609,7 +618,7 @@ func (s *MinifluxServer) GetEntry(ctx context.Context, request mcp.CallToolReque
 	}
 	entry, err := s.client.EntryContext(ctx, entryID)
 	if err != nil || entry == nil {
-		return toolErrorResult("failed to fetch entry")
+		return backendToolErrorResult(err, "failed to fetch entry")
 	}
 
 	return boundedEntryDetailResult(entry, contentOffset)
@@ -699,7 +708,7 @@ func (s *MinifluxServer) UpdateEntryStatus(ctx context.Context, request mcp.Call
 		return result, nil
 	}
 	if err := s.client.UpdateEntriesContext(ctx, []int64{entryID}, status); err != nil {
-		return toolErrorResult("failed to update entry status")
+		return backendToolErrorResult(err, "failed to update entry status")
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Entry %d status updated to: %s", entryID, status)), nil
@@ -722,7 +731,7 @@ func (s *MinifluxServer) UpdateEntriesStatus(ctx context.Context, request mcp.Ca
 		return result, nil
 	}
 	if err := s.client.UpdateEntriesContext(ctx, entryIDs, status); err != nil {
-		return toolErrorResult("failed to update entries status")
+		return backendToolErrorResult(err, "failed to update entries status")
 	}
 
 	return marshalToolResult(MCPEntriesStatusUpdate{Updated: len(entryIDs), Status: status})
@@ -738,7 +747,7 @@ func (s *MinifluxServer) RefreshFeed(ctx context.Context, request mcp.CallToolRe
 		return result, nil
 	}
 	if err := s.client.RefreshFeedContext(ctx, feedID); err != nil {
-		return toolErrorResult("failed to refresh feed")
+		return backendToolErrorResult(err, "failed to refresh feed")
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Feed %d refreshed successfully", feedID)), nil
@@ -747,7 +756,7 @@ func (s *MinifluxServer) RefreshFeed(ctx context.Context, request mcp.CallToolRe
 func (s *MinifluxServer) GetCategories(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	categories, err := s.client.CategoriesContext(ctx)
 	if err != nil {
-		return toolErrorResult("failed to fetch categories")
+		return backendToolErrorResult(err, "failed to fetch categories")
 	}
 
 	return marshalToolResult(toMCPCategories(categories))
@@ -793,7 +802,7 @@ func (s *MinifluxServer) GetFeedEntries(ctx context.Context, request mcp.CallToo
 	}
 	entries, err := s.client.FeedEntriesContext(ctx, feedID, filter)
 	if err != nil {
-		return toolErrorResult("failed to fetch feed entries")
+		return backendToolErrorResult(err, "failed to fetch feed entries")
 	}
 
 	return marshalToolResult(toMCPEntryResultSet(entries))
@@ -818,7 +827,7 @@ func (s *MinifluxServer) GetFeedEntry(ctx context.Context, request mcp.CallToolR
 	}
 	entry, err := s.client.FeedEntryContext(ctx, feedID, entryID)
 	if err != nil || entry == nil {
-		return toolErrorResult("failed to fetch feed entry")
+		return backendToolErrorResult(err, "failed to fetch feed entry")
 	}
 
 	return boundedEntryDetailResult(entry, contentOffset)
@@ -835,7 +844,7 @@ func (s *MinifluxServer) GetCategoryFeeds(ctx context.Context, request mcp.CallT
 	}
 	feeds, err := s.client.CategoryFeedsContext(ctx, categoryID)
 	if err != nil {
-		return toolErrorResult("failed to fetch category feeds")
+		return backendToolErrorResult(err, "failed to fetch category feeds")
 	}
 
 	return marshalToolResult(toMCPFeeds(feeds))
@@ -856,7 +865,7 @@ func (s *MinifluxServer) GetCategoryEntries(ctx context.Context, request mcp.Cal
 	}
 	entries, err := s.client.CategoryEntriesContext(ctx, categoryID, filter)
 	if err != nil {
-		return toolErrorResult("failed to fetch category entries")
+		return backendToolErrorResult(err, "failed to fetch category entries")
 	}
 
 	return marshalToolResult(toMCPEntryResultSet(entries))
@@ -881,7 +890,7 @@ func (s *MinifluxServer) GetCategoryEntry(ctx context.Context, request mcp.CallT
 	}
 	entry, err := s.client.CategoryEntryContext(ctx, categoryID, entryID)
 	if err != nil || entry == nil {
-		return toolErrorResult("failed to fetch category entry")
+		return backendToolErrorResult(err, "failed to fetch category entry")
 	}
 
 	return boundedEntryDetailResult(entry, contentOffset)
@@ -897,7 +906,7 @@ func (s *MinifluxServer) ToggleStarred(ctx context.Context, request mcp.CallTool
 		return result, nil
 	}
 	if err := s.client.ToggleStarredContext(ctx, entryID); err != nil {
-		return toolErrorResult("failed to toggle starred status")
+		return backendToolErrorResult(err, "failed to toggle starred status")
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Starred status toggled for entry %d", entryID)), nil
@@ -906,7 +915,7 @@ func (s *MinifluxServer) ToggleStarred(ctx context.Context, request mcp.CallTool
 func (s *MinifluxServer) GetVersion(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	version, err := s.client.VersionContext(ctx)
 	if err != nil || version == nil {
-		return toolErrorResult("failed to fetch version")
+		return backendToolErrorResult(err, "failed to fetch version")
 	}
 
 	return marshalToolResult(MCPVersion{Version: version.Version})
@@ -914,7 +923,7 @@ func (s *MinifluxServer) GetVersion(ctx context.Context, _ mcp.CallToolRequest) 
 
 func (s *MinifluxServer) Healthcheck(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	if err := s.client.HealthcheckContext(ctx); err != nil {
-		return toolErrorResult("healthcheck failed")
+		return backendToolErrorResult(err, "healthcheck failed")
 	}
 
 	return mcp.NewToolResultText("Healthcheck passed"), nil
@@ -923,7 +932,7 @@ func (s *MinifluxServer) Healthcheck(ctx context.Context, _ mcp.CallToolRequest)
 func (s *MinifluxServer) FetchCounters(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	counters, err := s.client.FetchCountersContext(ctx)
 	if err != nil || counters == nil {
-		return toolErrorResult("failed to fetch counters")
+		return backendToolErrorResult(err, "failed to fetch counters")
 	}
 
 	return marshalToolResult(toMCPFeedCounters(counters))

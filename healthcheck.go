@@ -35,6 +35,9 @@ func runHealthcheck(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("healthcheck configuration is invalid")
 	}
+	if err := validateMinifluxCredentialTransport(cfg, transport); err != nil {
+		return fmt.Errorf("healthcheck configuration is invalid")
+	}
 	minifluxClient, err := newMinifluxAPIClient(cfg)
 	if err != nil {
 		return fmt.Errorf("healthcheck configuration is invalid")
