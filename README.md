@@ -115,7 +115,7 @@ Configured browser origins must be exact `http://host[:port]` or `https://host[:
 
 ### Add to an agent
 
-The STDIO examples assume `MINIFLUX_URL` and `MINIFLUX_API_KEY` are exported and the binary is available at `/path/to/miniflux-mcp`. The HTTP examples assume a server is listening on loopback and `MCP_AUTH_TOKEN` is exported.
+The STDIO examples assume `MINIFLUX_URL` and `MINIFLUX_API_KEY` are exported and the binary is available at `/path/to/miniflux-mcp`. The HTTP examples assume a server is listening on loopback and `MCP_AUTH_TOKEN` is exported; `header` mode also requires `MINIFLUX_API_KEY`.
 
 Claude Code, STDIO:
 
@@ -126,7 +126,11 @@ claude mcp add --scope user --transport stdio miniflux --env MINIFLUX_URL="$MINI
 Claude Code, HTTP:
 
 ```bash
+# "config" mode, one static account per MCP server
 claude mcp add --scope user --transport http miniflux http://127.0.0.1:8080/mcp --header "Authorization: Bearer $MCP_AUTH_TOKEN"
+
+# "header" mode, multiple accounts, Miniflux credentials provided by caller
+claude mcp add --scope user --transport http miniflux http://127.0.0.1:8080/mcp --header "Authorization: Bearer $MCP_AUTH_TOKEN" --header "X-Miniflux-Token: $MINIFLUX_API_KEY"
 ```
 
 Codex, STDIO:
@@ -138,8 +142,14 @@ codex mcp add miniflux --env MINIFLUX_URL="$MINIFLUX_URL" --env MINIFLUX_API_KEY
 Codex, HTTP:
 
 ```bash
+# "config" mode, one static account per MCP server
 codex mcp add miniflux --url http://127.0.0.1:8080/mcp --bearer-token-env-var MCP_AUTH_TOKEN
+
+# "header" mode, multiple accounts, Miniflux credentials provided by caller
+codex -c 'mcp_servers.miniflux={url="http://127.0.0.1:8080/mcp",bearer_token_env_var="MCP_AUTH_TOKEN",env_http_headers={"X-Miniflux-Token"="MINIFLUX_API_KEY"}}'
 ```
+
+Codex's `-c` form applies to that invocation; use the same keys in `config.toml` to persist them.
 
 For project-scoped clients that support `.mcp.json`, choose either transport. This STDIO example launches the local binary:
 
