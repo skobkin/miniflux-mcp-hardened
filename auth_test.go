@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -59,6 +60,7 @@ func TestMinifluxCredentialHeaderPolicy(t *testing.T) {
 			}))
 			request := httptest.NewRequest(http.MethodPost, "http://server.example/mcp", nil)
 			request.Header = test.headers.Clone()
+			originalHeaders := request.Header.Clone()
 			response := httptest.NewRecorder()
 
 			handler.ServeHTTP(response, request)
@@ -71,6 +73,9 @@ func TestMinifluxCredentialHeaderPolicy(t *testing.T) {
 			}
 			if strings.Contains(response.Body.String(), token) {
 				t.Fatal("HTTP error echoed the Miniflux token")
+			}
+			if !reflect.DeepEqual(request.Header, originalHeaders) {
+				t.Fatalf("middleware mutated original request headers: got %v, want %v", request.Header, originalHeaders)
 			}
 		})
 	}

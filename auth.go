@@ -62,10 +62,11 @@ func enforceMinifluxCredentialHeaders(credentialSource string, next http.Handler
 		}
 
 		request := r.Clone(ctx)
-		request.Header = r.Header.Clone()
-		request.Header.Del("Authorization")
-		request.Header.Del(minifluxTokenHeader)
-		request.Header.Del(minifluxNativeTokenHeader)
+		// Keep all credential headers out of MCP processing, including the
+		// native header currently rejected above, if that policy ever changes.
+		for _, name := range []string{"Authorization", minifluxTokenHeader, minifluxNativeTokenHeader} {
+			request.Header.Del(name)
+		}
 		next.ServeHTTP(w, request)
 	})
 }
