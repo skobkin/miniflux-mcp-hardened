@@ -28,8 +28,7 @@ The removed capabilities are intentional security boundaries, not missing API-co
 - Feed responses omit subscription URLs and fetch configuration such as usernames, passwords, cookies, proxy URLs, and integration endpoints. Nested feed objects are sanitized too.
 - Titles, descriptions, article content, links, and tags are untrusted external data and must never be treated as MCP instructions.
 - Streamable HTTP requires a Bearer token and rejects browser origins unless they are explicitly allowlisted. Use HTTPS outside a trusted private network.
-- A deployment targets one configured Miniflux instance. By default it uses one configured identity; optional HTTP header mode creates an isolated Miniflux client from each request's API key without caching or session binding.
-- MCP Bearer authentication and Miniflux API authentication are separate trust domains. Dynamic Miniflux credentials never replace `MCP_AUTH_TOKEN`.
+- One deployment targets one Miniflux instance. `config` mode uses one configured identity; `header` mode uses each request's API key without caching or session binding. MCP Bearer authentication remains a separate requirement.
 - Every MCP tool invocation emits a structured JSON record to stderr with only the tool name, read/write class, outcome, and duration. Arguments, results, article data, credentials, tokens, headers, and backend error details are not logged.
 
 ## Tools
@@ -86,17 +85,20 @@ A reusable [Miniflux MCP triage skill](skills/miniflux-mcp-triage/SKILL.md) is p
 | `MCP_AUTH_TOKEN` | Bearer token protecting the MCP endpoint | Required for HTTP |
 | `MCP_ALLOWED_ORIGINS` | Comma-separated browser origins | Empty; reject requests carrying `Origin` |
 
-With `MINIFLUX_CREDENTIAL_SOURCE=config`, the existing configured-credential behavior remains unchanged. If both configured authentication forms are present, the API key is used. Startup performs bounded Miniflux health and authentication probes.
+`MINIFLUX_CREDENTIAL_SOURCE=config` keeps the existing behavior: an API key, or a username and password, configures one Miniflux identity. The API key wins if both forms are set. Startup checks Miniflux health and authentication.
 
-`MINIFLUX_CREDENTIAL_SOURCE=header` is available only with `MCP_TRANSPORT=streamable-http`. Every non-preflight MCP request must include both `Authorization: Bearer <MCP token>` and `X-Miniflux-Token: <Miniflux API key>`. Configured Miniflux credentials cause startup to fail in this mode. The server validates and removes both inbound credential headers before MCP processing, creates one request-local Miniflux SDK client for each tool call, and sends the API key to the configured Miniflux instance as `X-Auth-Token`. It does not cache credentials or bind them to MCP sessions. A missing, duplicate, or malformed Miniflux header returns HTTP 400; a Miniflux 401 becomes the fixed tool error `Miniflux authentication failed`. Initialization does not prevalidate the key, and the public Miniflux healthcheck tests availability rather than authentication.
+`MINIFLUX_CREDENTIAL_SOURCE=header` requires `MCP_TRANSPORT=streamable-http` and forbids configured Miniflux credentials. Every non-preflight MCP request must include:
 
-Both token values must contain only printable ASCII and must not have outer whitespace.
+```text
+Authorization: Bearer <MCP token>
+X-Miniflux-Token: <Miniflux API key>
+```
 
-The server cannot determine whether an otherwise valid Miniflux API key belongs to the intended MCP caller. The client or deployment identity layer is responsible for attaching the correct key to each request; `MCP_AUTH_TOKEN` remains the separate gate protecting access to the MCP endpoint.
+The first token protects MCP; the second selects the Miniflux identity for that request. The server does not cache Miniflux keys or bind them to sessions. Clients must attach the correct key to every request. Missing, duplicate, or malformed Miniflux headers return HTTP 400. Initialization does not validate the user's key, and Miniflux's public healthcheck tests availability only.
 
-Inbound `X-Auth-Token` is always rejected, and `X-Miniflux-Token` is rejected in `config` mode. Miniflux API redirects are refused in both modes so credentials cannot be forwarded to a redirect target. Credentials are never accepted as MCP tool arguments. Miniflux API requests use a 30-second client timeout.
+Tokens must contain only printable ASCII and no outer whitespace. Inbound `X-Auth-Token` is always rejected; `X-Miniflux-Token` is also rejected in `config` mode. Miniflux redirects are refused so credentials cannot reach redirect targets. Credentials are never accepted as tool arguments. Miniflux requests use a 30-second timeout.
 
-`MINIFLUX_PROXY_URL` controls only MCP-to-Miniflux traffic; it does not change how Miniflux fetches feeds or articles. When unset, Go's default transport continues to honor `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. When set, the explicit proxy is used for both HTTP and HTTPS Miniflux URLs while `NO_PROXY`/`no_proxy` exclusions remain effective. Proxy credentials may be supplied as URL userinfo but are never included in MCP results, logs, or startup errors. Treat configured proxies as trusted credential-path infrastructure, and configure reverse proxies and tracing systems never to log `Authorization` or `X-Miniflux-Token`.
+`MINIFLUX_PROXY_URL` affects only MCP-to-Miniflux traffic. When unset, Go honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. When set, it applies to HTTP and HTTPS Miniflux URLs while `NO_PROXY` remains effective. Proxy credentials are never included in MCP results, logs, or startup errors. Treat proxies as trusted credential-path infrastructure, and do not log `Authorization` or `X-Miniflux-Token` in reverse proxies or tracing systems.
 
 Enable any combination of the four non-default tools listed in the catalog:
 
@@ -106,7 +108,7 @@ MCP_WRITE_TOOLS=update_entry_status,update_entries_status,toggle_starred,refresh
 
 Names are case-sensitive. Unknown, disallowed, or empty list elements fail startup, and disabled write tools are omitted from MCP registration entirely.
 
-Configured browser origins must be exact `http://host[:port]` or `https://host[:port]` values without paths, credentials, queries, fragments, or wildcards. Scheme/host case and default ports are normalized. Requests without `Origin`, including ordinary non-browser MCP clients, remain usable. Authentication tokens containing non-printable or non-ASCII bytes, or having outer whitespace, are rejected at startup.
+Configured browser origins must be exact `http://host[:port]` or `https://host[:port]` values without paths, credentials, queries, fragments, or wildcards. Scheme/host case and default ports are normalized. Requests without `Origin`, including ordinary non-browser MCP clients, remain usable.
 
 ## Usage
 
@@ -155,21 +157,7 @@ For project-scoped clients that support `.mcp.json`, choose either transport. Th
 }
 ```
 
-For an already-running HTTP server:
-
-```json
-{
-  "mcpServers": {
-    "miniflux": {
-      "type": "http",
-      "url": "https://mcp.example.com/mcp",
-      "headers": {"Authorization": "Bearer ${MCP_AUTH_TOKEN}"}
-    }
-  }
-}
-```
-
-For per-request Miniflux credentials, start the server with `MINIFLUX_CREDENTIAL_SOURCE=header` and configure both headers in a client that supports arbitrary HTTP headers:
+For an already-running HTTP server, clients that support arbitrary headers can use the following. Omit `X-Miniflux-Token` in `config` mode.
 
 ```json
 {
@@ -186,7 +174,7 @@ For per-request Miniflux credentials, start the server with `MINIFLUX_CREDENTIAL
 }
 ```
 
-The Miniflux API key belongs in the MCP client's secret configuration, not in prompts or tool arguments. Clients must send it on every MCP HTTP request; the server deliberately retains no session credential.
+In `header` mode, keep the Miniflux key in the client's secret configuration and send it on every request, never in prompts or tool arguments.
 
 ### Run with Docker
 
@@ -214,22 +202,13 @@ services:
 
 The container image defaults to Streamable HTTP; set `MCP_AUTH_TOKEN` or startup fails. Clients send `Authorization: Bearer <token>`. Authenticated MCP request bodies are limited to 1 MiB and oversized requests return HTTP 413; `/healthz` is unaffected. Request reads and header sizes are bounded, while response writes remain unbounded because Streamable HTTP may use long-lived SSE streams. SIGTERM and SIGINT trigger a bounded graceful shutdown. `/healthz` is intentionally unauthenticated and returns plain text `ok` followed by a newline.
 
-For a multi-user deployment, omit configured Miniflux credentials and change the environment section to:
-
-```yaml
-    environment:
-      MINIFLUX_URL: ${MINIFLUX_URL}
-      MINIFLUX_CREDENTIAL_SOURCE: header
-      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN}
-      MCP_WRITE_TOOLS: ${MCP_WRITE_TOOLS:-}
-      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
-```
+For a multi-user deployment, set `MINIFLUX_CREDENTIAL_SOURCE: header` and remove all configured Miniflux credentials from the environment.
 
 The scratch image uses an exec-form `HEALTHCHECK` that runs `/miniflux-mcp healthcheck` without a shell or extra runtime packages. In Streamable HTTP mode it probes the local `/healthz` endpoint. In STDIO mode it validates configuration and performs a bounded Miniflux health probe, so the absence of an HTTP listener does not make STDIO containers permanently unhealthy. The command returns conventional exit status and does not print secrets or require a writable filesystem.
 
 ## Continuous integration and releases
 
-Woodpecker CI runs formatting, lint, vet, unit, race, build, end-to-end, and dry-run container image build checks for pushes and pull requests targeting `main`. The end-to-end suite covers STDIO plus authenticated Streamable HTTP with both configured and per-request Miniflux credentials.
+Woodpecker CI runs formatting, lint, vet, unit, race, build, end-to-end, and dry-run container image build checks for pushes and pull requests targeting `main`. The end-to-end suite covers both STDIO and authenticated Streamable HTTP.
 
 Tags matching `v*` run the same checks before publishing a static Linux AMD64 archive and checksum to [Forgejo](https://git.skobk.in/skobkin/miniflux-mcp-hardened/releases) and versioned [`skobkin/miniflux-mcp-hardened`](https://hub.docker.com/r/skobkin/miniflux-mcp-hardened) images to Docker Hub.
 
