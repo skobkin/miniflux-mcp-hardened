@@ -18,6 +18,19 @@ const (
 type minifluxTokenContextKey struct{}
 type minifluxClientContextKey struct{}
 
+func validCredentialValue(value string) bool {
+	if value == "" || strings.TrimSpace(value) != value {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		if value[index] < ' ' || value[index] > '~' {
+			return false
+		}
+	}
+
+	return true
+}
+
 func enforceMinifluxCredentialHeaders(credentialSource string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if len(r.Header.Values(minifluxNativeTokenHeader)) != 0 {
@@ -36,7 +49,7 @@ func enforceMinifluxCredentialHeaders(credentialSource string, next http.Handler
 			}
 		case minifluxCredentialSourceHeader:
 			values := r.Header.Values(minifluxTokenHeader)
-			if len(values) != 1 || values[0] == "" || strings.TrimSpace(values[0]) != values[0] || strings.ContainsAny(values[0], "\r\n") {
+			if len(values) != 1 || !validCredentialValue(values[0]) {
 				http.Error(w, "exactly one non-empty "+minifluxTokenHeader+" header is required", http.StatusBadRequest)
 
 				return

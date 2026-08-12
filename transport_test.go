@@ -95,11 +95,24 @@ func TestLoadTransportConfigRejectsMalformedAuthTokens(t *testing.T) {
 	t.Setenv("MCP_TRANSPORT", transportStreamableHTTP)
 	t.Setenv("MCP_ALLOWED_ORIGINS", "")
 
-	for _, token := range []string{" secret", "secret ", "secret\n", "sec\rret"} {
-		t.Run(token, func(t *testing.T) {
-			t.Setenv("MCP_AUTH_TOKEN", token)
+	tests := []struct {
+		name  string
+		token string
+	}{
+		{name: "leading whitespace", token: " secret"},
+		{name: "trailing whitespace", token: "secret "},
+		{name: "newline", token: "secret\n"},
+		{name: "carriage return", token: "sec\rret"},
+		{name: "tab", token: "sec\tret"},
+		{name: "DEL", token: "sec\x7fret"},
+		{name: "non-ASCII", token: "sëcret"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("MCP_AUTH_TOKEN", test.token)
 			if _, err := loadTransportConfig(); err == nil {
-				t.Fatalf("loadTransportConfig accepted malformed auth token %q", token)
+				t.Fatalf("loadTransportConfig accepted malformed auth token %q", test.token)
 			}
 		})
 	}

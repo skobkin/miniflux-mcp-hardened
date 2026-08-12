@@ -90,6 +90,8 @@ With `MINIFLUX_CREDENTIAL_SOURCE=config`, the existing configured-credential beh
 
 `MINIFLUX_CREDENTIAL_SOURCE=header` is available only with `MCP_TRANSPORT=streamable-http`. Every non-preflight MCP request must include both `Authorization: Bearer <MCP token>` and `X-Miniflux-Token: <Miniflux API key>`. Configured Miniflux credentials cause startup to fail in this mode. The server validates and removes both inbound credential headers before MCP processing, creates one request-local Miniflux SDK client for each tool call, and sends the API key to the configured Miniflux instance as `X-Auth-Token`. It does not cache credentials or bind them to MCP sessions. A missing, duplicate, or malformed Miniflux header returns HTTP 400; a Miniflux 401 becomes the fixed tool error `Miniflux authentication failed`. Initialization does not prevalidate the key, and the public Miniflux healthcheck tests availability rather than authentication.
 
+Both token values must contain only printable ASCII and must not have outer whitespace.
+
 The server cannot determine whether an otherwise valid Miniflux API key belongs to the intended MCP caller. The client or deployment identity layer is responsible for attaching the correct key to each request; `MCP_AUTH_TOKEN` remains the separate gate protecting access to the MCP endpoint.
 
 Inbound `X-Auth-Token` is always rejected, and `X-Miniflux-Token` is rejected in `config` mode. Miniflux API redirects are refused in both modes so credentials cannot be forwarded to a redirect target. Credentials are never accepted as MCP tool arguments. Miniflux API requests use a 30-second client timeout.
@@ -104,7 +106,7 @@ MCP_WRITE_TOOLS=update_entry_status,update_entries_status,toggle_starred,refresh
 
 Names are case-sensitive. Unknown, disallowed, or empty list elements fail startup, and disabled write tools are omitted from MCP registration entirely.
 
-Configured browser origins must be exact `http://host[:port]` or `https://host[:port]` values without paths, credentials, queries, fragments, or wildcards. Scheme/host case and default ports are normalized. Requests without `Origin`, including ordinary non-browser MCP clients, remain usable. Authentication tokens with outer whitespace or newlines are rejected at startup.
+Configured browser origins must be exact `http://host[:port]` or `https://host[:port]` values without paths, credentials, queries, fragments, or wildcards. Scheme/host case and default ports are normalized. Requests without `Origin`, including ordinary non-browser MCP clients, remain usable. Authentication tokens containing non-printable or non-ASCII bytes, or having outer whitespace, are rejected at startup.
 
 ## Usage
 
