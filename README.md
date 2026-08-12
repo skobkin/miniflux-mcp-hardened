@@ -17,7 +17,8 @@ This project is a hardened fork of [`tssujt/miniflux-mcp`](https://github.com/ts
 | Administration and utilities | User and API-key administration, discovery, export, history flushing, and raw media access | Not exposed; only compact version, health, and counter diagnostics remain |
 | Responses | Miniflux client objects can cross the MCP boundary | Explicit LLM-facing DTOs omit credentials and unnecessary internal fields, including in nested objects |
 | Inputs and result size | Broad API-shaped schemas | Strict integer validation, bounded entry collections, no credential-bearing tool arguments |
-| HTTP and runtime | STDIO and Bearer-protected Streamable HTTP | Adds strict token/origin validation, optional per-request Miniflux credentials, bounded requests, graceful shutdown, and a minimal non-root container |
+| Miniflux authentication | One process-wide configured identity | Configured identity or opt-in per-request API keys for multi-user HTTP deployments |
+| HTTP and runtime | STDIO and Bearer-protected Streamable HTTP | Adds strict token/origin validation, bounded requests, graceful shutdown, and a minimal non-root container |
 
 The removed capabilities are intentional security boundaries, not missing API-completeness work.
 
