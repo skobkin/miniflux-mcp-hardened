@@ -120,6 +120,11 @@ func TestGetUnreadDigestBuildsBoundedOrderedResponse(t *testing.T) {
 	if digest.Entries[0].ContentExcerpt != "first" || digest.Entries[0].ContentTruncated {
 		t.Fatalf("first digest excerpt = %#v", digest.Entries[0])
 	}
+	for _, digestEntry := range digest.Entries {
+		if digestEntry.ContentOrigin != contentOriginExternalFeed || digestEntry.ContentTrust != contentTrustUntrusted {
+			t.Fatalf("digest entry %d trust metadata = %q/%q, want %q/%q", digestEntry.ID, digestEntry.ContentOrigin, digestEntry.ContentTrust, contentOriginExternalFeed, contentTrustUntrusted)
+		}
+	}
 	if len(fake.entryFilters) != 1 {
 		t.Fatalf("Miniflux calls = %d, want 1", len(fake.entryFilters))
 	}

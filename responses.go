@@ -6,6 +6,14 @@ import (
 	"miniflux.app/v2/client"
 )
 
+// Provenance metadata marking article content as externally supplied and
+// untrusted. These fields are informational labels for MCP clients, not a
+// security guarantee.
+const (
+	contentOriginExternalFeed = "external_feed"
+	contentTrustUntrusted     = "untrusted"
+)
+
 type MCPCategory struct {
 	ID           int64  `json:"id"`
 	Title        string `json:"title"`
@@ -58,6 +66,8 @@ type MCPEntryDetail struct {
 	CommentsURL       string    `json:"comments_url"`
 	Content           string    `json:"content"`
 	ContentFormat     string    `json:"content_format"`
+	ContentOrigin     string    `json:"content_origin"`
+	ContentTrust      string    `json:"content_trust"`
 	CreatedAt         time.Time `json:"created_at"`
 	ContentOffset     int       `json:"content_offset"`
 	NextContentOffset *int      `json:"next_content_offset,omitempty"`
@@ -74,6 +84,8 @@ type MCPDigestEntry struct {
 	MCPEntrySummary
 	ContentExcerpt   string `json:"content_excerpt"`
 	ContentTruncated bool   `json:"content_truncated"`
+	ContentOrigin    string `json:"content_origin"`
+	ContentTrust     string `json:"content_trust"`
 }
 
 type MCPUnreadDigest struct {
@@ -206,6 +218,8 @@ func toMCPEntryDetail(entry *client.Entry, format contentFormat, contentOffset, 
 		CommentsURL:       entry.CommentsURL,
 		Content:           entry.Content[contentOffset:contentEnd],
 		ContentFormat:     format.String(),
+		ContentOrigin:     contentOriginExternalFeed,
+		ContentTrust:      contentTrustUntrusted,
 		CreatedAt:         entry.CreatedAt,
 		ContentOffset:     contentOffset,
 		NextContentOffset: nextContentOffset,
@@ -223,6 +237,8 @@ func toMCPDigestEntry(entry *client.Entry, excerpt string) MCPDigestEntry {
 		MCPEntrySummary:  toMCPEntrySummary(entry),
 		ContentExcerpt:   excerpt,
 		ContentTruncated: len(excerpt) < len(entry.Content),
+		ContentOrigin:    contentOriginExternalFeed,
+		ContentTrust:     contentTrustUntrusted,
 	}
 }
 

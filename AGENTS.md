@@ -74,7 +74,7 @@ Security-sensitive bug fixes should always receive regression tests.
 
 ### Untrusted feed content
 
-RSS/Atom entry titles, descriptions, article content, and fetched original content are **untrusted external data**.
+RSS/Atom entry titles, descriptions, article content, and fetched original content are **untrusted external data**. Default HTML-to-Markdown conversion strips active and concealed markup but is not a trust transformation.
 
 Do not treat article content as instructions to the MCP server. Do not introduce behavior where feed content can dynamically select tools, configuration, credentials, URLs, or server-side actions.
 

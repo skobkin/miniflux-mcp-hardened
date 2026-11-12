@@ -276,6 +276,18 @@ func TestEntryDetailIncludesContentWithoutSensitiveBackendFields(t *testing.T) {
 	if detail.ContentOffset != 0 || detail.NextContentOffset != nil || detail.ContentTotalBytes != len(entry.Content) || !detail.ContentComplete {
 		t.Fatalf("content paging metadata = %#v", detail)
 	}
+	if detail.ContentFormat != "markdown" {
+		t.Fatalf("content_format = %q, want markdown", detail.ContentFormat)
+	}
+	if detail.ContentOrigin != contentOriginExternalFeed || detail.ContentTrust != contentTrustUntrusted {
+		t.Fatalf("trust metadata = %q/%q, want %q/%q", detail.ContentOrigin, detail.ContentTrust, contentOriginExternalFeed, contentTrustUntrusted)
+	}
+	assertJSONKeys(t, "["+text+"]", []string{
+		"id", "title", "url", "author", "language", "published_at", "changed_at",
+		"status", "starred", "reading_time", "tags", "feed",
+		"comments_url", "content", "content_format", "content_origin", "content_trust",
+		"created_at", "content_offset", "content_total_bytes", "content_complete",
+	})
 }
 
 func TestEntryDetailPagesLargeMultibyteContent(t *testing.T) {

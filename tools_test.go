@@ -312,3 +312,71 @@ func walkSchemaKeys(value interface{}, visit func(string)) {
 		}
 	}
 }
+
+func TestToolAnnotationsMatchPolicy(t *testing.T) {
+	enabled := writeToolSet{
+		"update_entry_status":   {},
+		"update_entries_status": {},
+		"toggle_starred":        {},
+		"refresh_feed":          {},
+	}
+	type expectedAnnotations struct {
+		readOnly    bool
+		destructive bool
+		idempotent  bool
+		openWorld   bool
+	}
+	read := expectedAnnotations{readOnly: true, destructive: false, idempotent: true, openWorld: true}
+	statusWrite := expectedAnnotations{readOnly: false, destructive: false, idempotent: true, openWorld: true}
+	toggle := expectedAnnotations{readOnly: false, destructive: false, idempotent: false, openWorld: true}
+	expectedByName := map[string]expectedAnnotations{
+		"get_feeds":             read,
+		"get_feed":              read,
+		"get_feed_entries":      read,
+		"get_feed_entry":        read,
+		"get_entries":           read,
+		"get_unread_digest":     read,
+		"get_entry":             read,
+		"get_categories":        read,
+		"get_category_feeds":    read,
+		"get_category_entries":  read,
+		"get_category_entry":    read,
+		"get_version":           read,
+		"healthcheck":           read,
+		"fetch_counters":        read,
+		"update_entry_status":   statusWrite,
+		"update_entries_status": statusWrite,
+		"refresh_feed":          statusWrite,
+		"toggle_starred":        toggle,
+	}
+	seen := make(map[string]struct{}, len(expectedByName))
+	for _, definition := range (&MinifluxServer{}).toolDefinitions(enabled) {
+		expected, known := expectedByName[definition.Tool.Name]
+		if !known {
+			t.Errorf("tool %q has no expected annotation policy; extend TestToolAnnotationsMatchPolicy", definition.Tool.Name)
+
+			continue
+		}
+		seen[definition.Tool.Name] = struct{}{}
+		annotations := definition.Tool.Annotations
+		for _, hint := range []struct {
+			name     string
+			actual   *bool
+			expected bool
+		}{
+			{name: "readOnlyHint", actual: annotations.ReadOnlyHint, expected: expected.readOnly},
+			{name: "destructiveHint", actual: annotations.DestructiveHint, expected: expected.destructive},
+			{name: "idempotentHint", actual: annotations.IdempotentHint, expected: expected.idempotent},
+			{name: "openWorldHint", actual: annotations.OpenWorldHint, expected: expected.openWorld},
+		} {
+			if hint.actual == nil || *hint.actual != hint.expected {
+				t.Errorf("tool %q %s = %v, want %v", definition.Tool.Name, hint.name, hint.actual, hint.expected)
+			}
+		}
+	}
+	for name := range expectedByName {
+		if _, ok := seen[name]; !ok {
+			t.Errorf("expected tool %q is not registered", name)
+		}
+	}
+}

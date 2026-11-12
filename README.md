@@ -15,7 +15,8 @@ This project is a hardened fork of [`tssujt/miniflux-mcp`](https://github.com/ts
 | Entries | Read, save, fetch original content, bulk marking, starring, and status changes including `removed` | Bounded sanitized reads; only explicitly selected entries can be starred or changed to `read`/`unread`, including status updates in batches of up to 100 |
 | Categories | Read, create, update, delete, refresh, and bulk marking | Sanitized reads only |
 | Administration and utilities | User and API-key administration, discovery, export, history flushing, and raw media access | Not exposed; only compact version, health, and counter diagnostics remain |
-| Responses | Miniflux client objects can cross the MCP boundary | Explicit LLM-facing DTOs omit credentials and unnecessary internal fields, including in nested objects |
+| Responses | Miniflux client objects can cross the MCP boundary | Explicit LLM-facing DTOs omit credentials and unnecessary internal fields, including in nested objects; article content carries `content_origin`/`content_trust` provenance fields |
+| Article content | Raw feed HTML | Converted to Markdown by default; scripts, styles, comments, hidden elements, embedded content, and non-allowlisted link schemes are stripped; original HTML only via `MCP_CONTENT_FORMAT=html` |
 | Inputs and result size | Broad API-shaped schemas | Strict integer validation, bounded entry collections, no credential-bearing tool arguments |
 | Miniflux authentication | One process-wide configured identity | Configured identity or opt-in per-request API keys for multi-user HTTP deployments |
 | HTTP and runtime | STDIO and Bearer-protected Streamable HTTP | Adds strict token/origin validation, bounded requests, graceful shutdown, and a minimal non-root container |
@@ -27,14 +28,14 @@ The removed capabilities are intentional security boundaries, not missing API-co
 - Only read tools are registered by default. The four supported writes require an explicit per-tool allowlist.
 - User administration, API-key management, broad mutations, feed/category management, and credential-management schemas are absent.
 - Feed responses omit subscription URLs and fetch configuration such as usernames, passwords, cookies, proxy URLs, and integration endpoints. Nested feed objects are sanitized too.
-- Titles, descriptions, article content, links, and tags are untrusted external data and must never be treated as MCP instructions.
+- Titles, descriptions, article content, links, and tags are untrusted external data and must never be treated as MCP instructions. Article HTML is converted to Markdown by default, stripping active and concealed markup; conversion removes markup, not untrusted meaning — prompt injection can survive as plain text. `content_origin`, `content_trust`, and tool annotations are informational labels, not guarantees.
 - Streamable HTTP requires a Bearer token and rejects browser origins unless they are explicitly allowlisted. Use HTTPS outside a trusted private network.
 - One deployment targets one Miniflux instance. `config` mode uses one configured identity; `header` mode uses each request's API key without caching or session binding. MCP Bearer authentication remains a separate requirement.
 - Every MCP tool invocation emits a structured JSON record to stderr with only the tool name, read/write class, outcome, and duration. Arguments, results, article data, credentials, tokens, headers, and backend error details are not logged.
 
 ## Tools
 
-`Default` indicates whether the tool is registered without `MCP_WRITE_TOOLS`; it is not a claim that private account data or external feed content is inherently trusted. `Upstream` records whether the tool existed in the original project.
+`Default` indicates whether the tool is registered without `MCP_WRITE_TOOLS`; it is not a claim that private account data or external feed content is inherently trusted. `Upstream` records whether the tool existed in the original project. Every tool carries MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) as informational hints.
 
 | Tool | Default | Upstream | Description |
 | --- | :---: | :---: | --- |
@@ -59,9 +60,9 @@ The removed capabilities are intentional security boundaries, not missing API-co
 
 Metadata-only entry collections default to 50 results and reject limits above 100. The content-bearing unread digest defaults to 10 entries and rejects limits above 20. IDs and Unix timestamp filters must be positive integers; collection and content offsets must be non-negative safely representable JSON integers. Entry search strings are limited to 4,096 Unicode characters in both the schema and runtime validation. Categories expose identity, visibility, and feed/unread counts; feeds expose identity, public site metadata, language, known check timestamps, disabled/parsing state, and a sanitized category. Unknown check times are omitted. Entry lists expose article metadata, status, tags, and sanitized feed identity without article bodies.
 
-`get_unread_digest` returns Miniflux-provided article excerpts with an oldest-first unread queue. Invalid UTF-8 from a backend is replaced before excerpts are measured. Excerpts are shared fairly across the batch, are capped at 8 KiB per entry, and carry `content_truncated` when they do not contain the complete normalized article. The fully encoded result is capped at 96 KiB; `response_size_limited` is present and true only in the exceptional case where untrusted metadata forces the server to return fewer entries than requested. After successful downstream processing, pass only the entries the caller actually processed from `ack_entry_ids` to the separately allowlisted `update_entries_status` tool. An acknowledgement ID identifies the stable returned batch; it does not assert that a truncated excerpt represents the full article. The bulk tool accepts 1–100 unique safe IDs and only the statuses `read` and `unread`; it never exposes Miniflux's `removed` mutation. `since` is an optional caller-owned Unix timestamp applied to `published_at`; no timezone or day-boundary policy is invented. Feed and category filters intersect, exclusions win, and category filtering scans at most 1,000 unread candidates to fill the bounded batch. `scan_truncated` reports when that defensive scan cap prevents a full batch.
+`get_unread_digest` returns converted article excerpts with an oldest-first unread queue. Invalid UTF-8 from a backend is replaced, and excerpts are converted Markdown (default) before they are measured. Excerpts are shared fairly across the batch, are capped at 8 KiB per entry, and carry `content_truncated` when they do not contain the complete converted article. The fully encoded result is capped at 96 KiB; `response_size_limited` is present and true only in the exceptional case where untrusted metadata forces the server to return fewer entries than requested. After successful downstream processing, pass only the entries the caller actually processed from `ack_entry_ids` to the separately allowlisted `update_entries_status` tool. An acknowledgement ID identifies the stable returned batch; it does not assert that a truncated excerpt represents the full article. The bulk tool accepts 1–100 unique safe IDs and only the statuses `read` and `unread`; it never exposes Miniflux's `removed` mutation. `since` is an optional caller-owned Unix timestamp applied to `published_at`; no timezone or day-boundary policy is invented. Feed and category filters intersect, exclusions win, and category filtering scans at most 1,000 unread candidates to fill the bounded batch. `scan_truncated` reports when that defensive scan cap prevents a full batch.
 
-Single-entry tools replace invalid backend UTF-8 and return a content chunk within the same 96 KiB encoded-result limit. When `content_complete` is false, call the same tool again with its `next_content_offset`; the offset is an opaque byte position in the normalized UTF-8 content and should be passed back unchanged. `content_total_bytes` reports that normalized content size. Detail responses also include comments URL and creation time.
+Single-entry tools replace invalid backend UTF-8, convert article HTML to Markdown by default (`content_format` reports `markdown`; `MCP_CONTENT_FORMAT=html` opt-in returns normalized original HTML), and return a content chunk within the same 96 KiB encoded-result limit. When `content_complete` is false, call the same tool again with its `next_content_offset`; the offset is an opaque byte position in the presented content and should be passed back unchanged. `content_total_bytes` reports that presented content size. Detail and digest entries carry `content_origin: "external_feed"` and `content_trust: "untrusted"`. Detail responses also include comments URL and creation time.
 
 Subscription `feed_url`, Miniflux user IDs, credentials, cookies, fetch/proxy settings, integration URLs, share codes, internal hashes, icons, and enclosures are intentionally absent. Version and counter tools return compact purpose-specific objects.
 
@@ -80,6 +81,7 @@ A reusable [Miniflux MCP triage skill](skills/miniflux-mcp-triage/SKILL.md) is p
 | `MINIFLUX_PASSWORD` | Configured Miniflux password | Use with `MINIFLUX_USERNAME` in `config` mode; forbidden in `header` mode |
 | `MINIFLUX_PROXY_URL` | Proxy for this process's connection to Miniflux; supports `http`, `https`, `socks5`, and `socks5h` | Unset; standard Go transport behavior |
 | `MCP_WRITE_TOOLS` | Comma-separated write-tool allowlist | Empty; read-only |
+| `MCP_CONTENT_FORMAT` | Presentation of untrusted article content: `markdown` or `html` | `markdown` |
 | `MCP_TRANSPORT` | `stdio` or `streamable-http` | `stdio`; container image: `streamable-http` |
 | `MCP_HTTP_ADDR` | HTTP listen address | `:8080` |
 | `MCP_HTTP_PATH` | MCP endpoint path | `/mcp` |
@@ -208,6 +210,7 @@ services:
       MINIFLUX_API_KEY: ${MINIFLUX_API_KEY}
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN}
       MCP_WRITE_TOOLS: ${MCP_WRITE_TOOLS:-}
+      MCP_CONTENT_FORMAT: ${MCP_CONTENT_FORMAT:-}
       MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-}
 ```
 
