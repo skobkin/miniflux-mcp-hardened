@@ -32,6 +32,7 @@ The removed capabilities are intentional security boundaries, not missing API-co
 - Streamable HTTP requires a Bearer token and rejects browser origins unless they are explicitly allowlisted. Use HTTPS outside a trusted private network.
 - One deployment targets one Miniflux instance. `config` mode uses one configured identity; `header` mode uses each request's API key without caching or session binding. MCP Bearer authentication remains a separate requirement.
 - Every MCP tool invocation emits a structured JSON record to stderr with only the tool name, read/write class, outcome, and duration. Arguments, results, article data, credentials, tokens, headers, and backend error details are not logged.
+- The deployer-facing prompt-injection threat model is documented in [docs/security.md](docs/security.md).
 
 ## Tools
 
