@@ -159,6 +159,9 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 		Version,
 		server.WithLogging(),
 		server.WithToolHandlerMiddleware(newToolCallLoggingMiddleware(logger)),
+		// Fail tool calls whose structured content drifted from the
+		// declared output schema instead of shipping malformed results.
+		server.WithOutputSchemaValidation(),
 	)
 	minifluxServer.RegisterTools(mcpServer, enabledWrites)
 
