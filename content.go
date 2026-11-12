@@ -212,20 +212,29 @@ func entryWithPresentedContent(entry *client.Entry, format contentFormat) (*clie
 	return &result, nil
 }
 
-// presentEntries applies entryWithPresentedContent to a batch.
-func presentEntries(entries client.Entries, format contentFormat) (client.Entries, error) {
-	if format == contentFormatHTML {
-		return entries, nil
-	}
+// contentWithheldNotice replaces article content when conversion fails. It
+// keeps a single unprocessable entry from failing an entire digest on every
+// call while the entry sits unread in the queue; raw feed HTML is never
+// emitted as a fallback.
+const contentWithheldNotice = "[article content withheld: processing failed]"
+
+// presentEntriesWithFallback is presentEntries with per-entry degradation:
+// an entry whose conversion fails is presented with withheld content and
+// intact metadata instead of aborting the batch.
+func presentEntriesWithFallback(entries client.Entries, format contentFormat) client.Entries {
 	presented := make(client.Entries, 0, len(entries))
 	for _, entry := range entries {
-		entry, err := entryWithPresentedContent(entry, format)
-		if err != nil {
-
-			return nil, err
+		if entry == nil {
+			continue
 		}
-		presented = append(presented, entry)
+		rendered, err := entryWithPresentedContent(entry, format)
+		if err != nil {
+			withheld := *entry
+			withheld.Content = contentWithheldNotice
+			rendered = &withheld
+		}
+		presented = append(presented, rendered)
 	}
 
-	return presented, nil
+	return presented
 }

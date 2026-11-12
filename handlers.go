@@ -491,24 +491,17 @@ func (s *MinifluxServer) GetUnreadDigest(ctx context.Context, request mcp.CallTo
 	if len(digestCandidates) > options.limit {
 		digestCandidates = digestCandidates[:options.limit]
 	}
-	result, err := boundedUnreadDigestResult(digestCandidates, scanTruncated, s.contentFormat)
-	if err != nil {
-		return toolErrorResult("failed to process article content")
-	}
 
-	return result, nil
+	return boundedUnreadDigestResult(digestCandidates, scanTruncated, s.contentFormat)
 }
 
 func boundedUnreadDigestResult(entries client.Entries, scanTruncated bool, format contentFormat) (*mcp.CallToolResult, error) {
-	entries, err := presentEntries(entries, format)
-	if err != nil {
-		return nil, err
-	}
-	included := len(entries)
+	presented := presentEntriesWithFallback(entries, format)
+	included := len(presented)
 	responseSizeLimited := false
 	var baseResult *mcp.CallToolResult
 	for {
-		digest := buildUnreadDigest(entries[:included], 0, scanTruncated, responseSizeLimited)
+		digest := buildUnreadDigest(presented[:included], 0, scanTruncated, responseSizeLimited)
 		result, err := marshalCompactToolResult(digest)
 		if err != nil {
 			return result, err
@@ -530,7 +523,7 @@ func boundedUnreadDigestResult(entries client.Entries, scanTruncated bool, forma
 	}
 
 	if included == 0 {
-		if len(entries) > 0 {
+		if len(presented) > 0 {
 			return toolErrorResult("digest metadata exceeds response size limit")
 		}
 
@@ -541,7 +534,7 @@ func boundedUnreadDigestResult(entries client.Entries, scanTruncated bool, forma
 	low, high := 1, maximumDigestExcerptBytes
 	for low <= high {
 		candidateLimit := low + (high-low)/2
-		digest := buildUnreadDigest(entries[:included], candidateLimit, scanTruncated, responseSizeLimited)
+		digest := buildUnreadDigest(presented[:included], candidateLimit, scanTruncated, responseSizeLimited)
 		result, err := marshalCompactToolResult(digest)
 		if err != nil {
 			return result, err

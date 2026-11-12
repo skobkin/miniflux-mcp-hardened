@@ -344,3 +344,51 @@ func (p *brokenPlugin) Name() string {
 func (p *brokenPlugin) Init(conv *converter.Converter) error {
 	return errors.New("broken plugin for fail-closed testing")
 }
+
+func TestDigestDegradesPerEntryWhenConversionFails(t *testing.T) {
+	// Deeply nested elements make the HTML parser fail for exactly this
+	// entry; the rest of the batch must survive.
+	bad := securityEntry("<div>" + strings.Repeat("<div>", 600) + "unconvertible article raw html must not leak")
+	bad.Date = time.Unix(1, 0)
+	good := &client.Entry{ID: 1, Date: time.Unix(0, 0), Status: client.EntryStatusUnread, Content: "<p>healthy article</p>"}
+	fake := &fakeMinifluxClient{entries: &client.EntryResultSet{Entries: client.Entries{bad, good}, Total: 2}}
+	server := &MinifluxServer{client: fake}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+		"limit": float64(2),
+	}}}
+
+	result, err := server.GetUnreadDigest(context.Background(), request)
+	if err != nil || result.IsError {
+		t.Fatalf("GetUnreadDigest = %#v, %v; want degraded batch, not batch failure", result, err)
+	}
+	var digest MCPUnreadDigest
+	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
+		t.Fatalf("decode digest: %v", err)
+	}
+	if len(digest.Entries) != 2 || len(digest.AckEntryIDs) != 2 {
+		t.Fatalf("degraded digest entries = %#v, ack = %v", digest.Entries, digest.AckEntryIDs)
+	}
+	byID := map[int64]MCPDigestEntry{digest.Entries[0].ID: digest.Entries[0], digest.Entries[1].ID: digest.Entries[1]}
+	if excerpt := byID[77].ContentExcerpt; excerpt != contentWithheldNotice {
+		t.Fatalf("unconvertible entry excerpt = %q, want withheld notice", excerpt)
+	}
+	if excerpt := byID[1].ContentExcerpt; !strings.Contains(excerpt, "healthy article") {
+		t.Fatalf("healthy entry excerpt = %q, want converted article text", excerpt)
+	}
+	text := resultText(t, result)
+	if strings.Contains(text, "must not leak") {
+		t.Fatal("raw HTML leaked through degraded digest entry")
+	}
+}
+
+func TestUnconvertibleEntryDetailFailsClosed(t *testing.T) {
+	entry := securityEntry(strings.Repeat("<div>", 600) + "deeply nested raw html must not leak")
+	server := &MinifluxServer{client: &fakeMinifluxClient{entry: entry}}
+	text := fetchEntryDetail(t, server)
+	if !strings.Contains(text, "failed to process article content") {
+		t.Fatalf("detail response = %q, want entry-scoped processing error", text)
+	}
+	if strings.Contains(text, "must not leak") {
+		t.Fatal("raw HTML leaked through failed detail conversion")
+	}
+}
