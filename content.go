@@ -52,8 +52,9 @@ func parseContentFormat(value string) (contentFormat, error) {
 
 // hardeningPlugin strips markup-based concealment that the base plugins do
 // not handle: hidden elements, embedded/foreign content, and URL attributes
-// whose scheme could trigger agent- or browser-side execution. It removes
-// markup, never article text; censoring visible text is out of scope.
+// whose scheme could trigger agent- or browser-side execution. Markup is
+// removed or unwrapped, never article text; censoring visible text is out
+// of scope.
 type hardeningPlugin struct{}
 
 func newHardeningPlugin() converter.Plugin {
@@ -64,7 +65,7 @@ func (p *hardeningPlugin) Name() string {
 	return "miniflux_hardening"
 }
 
-var removedEmbeddedElements = []string{"applet", "canvas", "embed", "math", "object", "svg"}
+var removedEmbeddedElements = []string{"applet", "canvas", "embed", "math", "object", "svg", "template"}
 
 func (p *hardeningPlugin) Init(conv *converter.Converter) error {
 	for _, tag := range removedEmbeddedElements {
@@ -79,19 +80,34 @@ func (p *hardeningPlugin) Init(conv *converter.Converter) error {
 
 func (p *hardeningPlugin) preRenderSanitize(_ converter.Context, doc *html.Node) {
 	var hidden []*html.Node
+	var strippedLinks []*html.Node
+	var strippedImages []*html.Node
 	walkHTMLNodes(doc, func(node *html.Node) {
 		if node.Type != html.ElementNode {
 			return
 		}
-		if isHiddenElement(node) {
+		if isHiddenElement(node) || isClosedDialog(node) {
 			hidden = append(hidden, node)
 
 			return
 		}
-		stripUnsafeURLAttributes(node)
+		switch stripUnsafeURLAttributes(node) {
+		case urlAttributeLinkStripped:
+			strippedLinks = append(strippedLinks, node)
+		case urlAttributeImageStripped:
+			strippedImages = append(strippedImages, node)
+		}
 	})
+	// Structural changes run after the walk and after removals so iteration
+	// never mutates the tree mid-traversal.
 	for _, node := range hidden {
 		dom.RemoveNode(node)
+	}
+	for _, node := range strippedLinks {
+		unwrapNode(node)
+	}
+	for _, node := range strippedImages {
+		replaceImageWithAltText(node)
 	}
 }
 
@@ -102,33 +118,115 @@ func walkHTMLNodes(node *html.Node, visit func(*html.Node)) {
 	}
 }
 
+// isClosedDialog reports whether a dialog element lacks the open attribute;
+// browsers do not render the content of such dialogs.
+func isClosedDialog(node *html.Node) bool {
+	if dom.NodeName(node) != "dialog" {
+		return false
+	}
+	_, open := dom.GetAttribute(node, "open")
+
+	return !open
+}
+
 // isHiddenElement reports whether an element is concealed from ordinary
-// rendering via the hidden attribute or inline display/visibility styles.
-// Class-based hiding is deliberately not detected; this is a normalization
-// step, not a sandbox.
+// rendering via the hidden attribute or inline display/visibility styles
+// (including CSS-comment obfuscation and visibility:collapse). Class-based
+// hiding, opacity, positioning, font-size tricks, and CSS backslash escapes
+// are deliberately not detected; this is a normalization step, not a
+// sandbox.
 func isHiddenElement(node *html.Node) bool {
 	if _, ok := dom.GetAttribute(node, "hidden"); ok {
 		return true
 	}
-	style := strings.Join(strings.Fields(strings.ToLower(dom.GetAttributeOr(node, "style", ""))), "")
+	style := strings.Join(strings.Fields(stripCSSComments(strings.ToLower(dom.GetAttributeOr(node, "style", "")))), "")
 
-	return strings.Contains(style, "display:none") || strings.Contains(style, "visibility:hidden")
+	return strings.Contains(style, "display:none") || strings.Contains(style, "visibility:hidden") || strings.Contains(style, "visibility:collapse")
 }
 
+// stripCSSComments removes /* ... */ comments so encodings such as
+// display:/*x*/none cannot evade the concealment check. An unclosed
+// comment truncates the remaining value, which errs toward removal.
+func stripCSSComments(value string) string {
+	for {
+		start := strings.Index(value, "/*")
+		if start < 0 {
+			return value
+		}
+		end := strings.Index(value[start+2:], "*/")
+		if end < 0 {
+			return value[:start]
+		}
+		value = value[:start] + value[start+2+end+2:]
+	}
+}
+
+type urlAttributeAction uint8
+
+const (
+	urlAttributeUnchanged urlAttributeAction = iota
+	urlAttributeLinkStripped
+	urlAttributeImageStripped
+)
+
 // stripUnsafeURLAttributes removes href/src attributes whose scheme is not
-// explicitly allowed. The link or image text is preserved; only the
-// attribute is dropped. Relative URLs are allowed and resolved against the
-// entry URL by the converter.
-func stripUnsafeURLAttributes(node *html.Node) {
+// explicitly allowed. Stripped links are reported for unwrapping so the
+// link text remains as plain text instead of being rendered with a
+// fabricated destination; stripped images are reported for replacement by
+// their alt text. Relative URLs are allowed and resolved against the entry
+// URL by the converter.
+func stripUnsafeURLAttributes(node *html.Node) urlAttributeAction {
+	action := urlAttributeUnchanged
 	for _, name := range []string{"href", "src"} {
 		value, ok := dom.GetAttribute(node, name)
 		if !ok {
 			continue
 		}
-		if !isAllowedReferenceScheme(value, name == "href") {
-			removeHTMLAttribute(node, name)
+		if isAllowedReferenceScheme(value, name == "href") {
+			continue
+		}
+		removeHTMLAttribute(node, name)
+		switch {
+		case dom.NodeName(node) == "a":
+			action = urlAttributeLinkStripped
+		case dom.NodeName(node) == "img":
+			action = urlAttributeImageStripped
 		}
 	}
+
+	return action
+}
+
+// unwrapNode moves a node's children into its parent and removes the node.
+func unwrapNode(node *html.Node) {
+	parent := node.Parent
+	if parent == nil {
+		dom.RemoveNode(node)
+
+		return
+	}
+	for child := node.FirstChild; child != nil; {
+		next := child.NextSibling
+		dom.RemoveNode(child)
+		parent.InsertBefore(child, node)
+		child = next
+	}
+	dom.RemoveNode(node)
+}
+
+// replaceImageWithAltText removes an image whose source was stripped,
+// keeping its alt text as ordinary text so the caption is not lost.
+func replaceImageWithAltText(node *html.Node) {
+	parent := node.Parent
+	alt := strings.TrimSpace(dom.GetAttributeOr(node, "alt", ""))
+	if parent == nil || alt == "" {
+		dom.RemoveNode(node)
+
+		return
+	}
+	text := &html.Node{Type: html.TextNode, Data: alt}
+	parent.InsertBefore(text, node)
+	dom.RemoveNode(node)
 }
 
 func isAllowedReferenceScheme(rawURL string, allowMailto bool) bool {
