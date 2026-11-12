@@ -1,7 +1,7 @@
 ---
 name: miniflux-mcp-triage
 description: Triage and process unread Miniflux entries safely.
-version: 2.3.0
+version: 2.4.0
 author: skobkin
 license: MIT
 metadata:
@@ -28,6 +28,8 @@ Transport credentials belong to the MCP client or deployment configuration, neve
 ## Tool catalog
 
 Use every available tool only for its narrow purpose.
+
+All tools except the four listed below return MCP structured content: read the typed payload from the response's `structuredContent` field. The text content holds only the pointer line `Tool result is delivered as structured content.` and never the data. `healthcheck`, `update_entry_status`, `toggle_starred`, and `refresh_feed` return plain text. The list wrappers are objects, not bare arrays: `get_feeds` and `get_category_feeds` return `{"feeds": [...]}`, and `get_categories` returns `{"categories": [...]}`.
 
 ### Diagnostics
 
