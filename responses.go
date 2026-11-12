@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"time"
 
 	"miniflux.app/v2/client"
@@ -80,6 +81,17 @@ type MCPEntryResultSet struct {
 	Entries []MCPEntrySummary `json:"entries"`
 }
 
+// MCPFeedList and MCPCategoryList wrap list results in top-level objects.
+// MCP structured content must be a JSON object, so bare arrays cannot be
+// returned as structuredContent directly.
+type MCPFeedList struct {
+	Feeds []*MCPFeed `json:"feeds"`
+}
+
+type MCPCategoryList struct {
+	Categories []*MCPCategory `json:"categories"`
+}
+
 type MCPDigestEntry struct {
 	MCPEntrySummary
 	ContentExcerpt   string `json:"content_excerpt"`
@@ -106,8 +118,10 @@ type MCPVersion struct {
 }
 
 type MCPFeedCounters struct {
-	ReadCounters   map[int64]int `json:"reads"`
-	UnreadCounters map[int64]int `json:"unreads"`
+	// Counter maps are keyed by feed ID. String keys are required because
+	// the output schema reflection silently drops non-string map keys.
+	ReadCounters   map[string]int `json:"reads"`
+	UnreadCounters map[string]int `json:"unreads"`
 }
 
 func toMCPCategory(category *client.Category) *MCPCategory {
@@ -273,17 +287,25 @@ func toMCPCategories(categories client.Categories) []*MCPCategory {
 	return result
 }
 
+func toMCPFeedList(feeds client.Feeds) *MCPFeedList {
+	return &MCPFeedList{Feeds: toMCPFeeds(feeds)}
+}
+
+func toMCPCategoryList(categories client.Categories) *MCPCategoryList {
+	return &MCPCategoryList{Categories: toMCPCategories(categories)}
+}
+
 func toMCPFeedCounters(counters *client.FeedCounters) *MCPFeedCounters {
 	if counters == nil {
 		return nil
 	}
-	reads := counters.ReadCounters
-	if reads == nil {
-		reads = map[int64]int{}
+	reads := make(map[string]int, len(counters.ReadCounters))
+	for id, count := range counters.ReadCounters {
+		reads[strconv.FormatInt(id, 10)] = count
 	}
-	unreads := counters.UnreadCounters
-	if unreads == nil {
-		unreads = map[int64]int{}
+	unreads := make(map[string]int, len(counters.UnreadCounters))
+	for id, count := range counters.UnreadCounters {
+		unreads[strconv.FormatInt(id, 10)] = count
 	}
 
 	return &MCPFeedCounters{

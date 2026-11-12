@@ -653,6 +653,49 @@ func TestCollectionConvertersSkipNilItems(t *testing.T) {
 	}
 }
 
+func TestListWrapperConvertersAlwaysProvideSlices(t *testing.T) {
+	feedList := toMCPFeedList(nil)
+	if feedList == nil || feedList.Feeds == nil || len(feedList.Feeds) != 0 {
+		t.Fatalf("toMCPFeedList(nil) = %#v, want non-nil wrapper with empty slice", feedList)
+	}
+
+	filled := toMCPFeedList(client.Feeds{nil, {ID: 42, Title: "Feed"}})
+	if len(filled.Feeds) != 1 || filled.Feeds[0].ID != 42 {
+		t.Fatalf("toMCPFeedList = %#v, want one non-nil feed", filled)
+	}
+
+	categoryList := toMCPCategoryList(nil)
+	if categoryList == nil || categoryList.Categories == nil || len(categoryList.Categories) != 0 {
+		t.Fatalf("toMCPCategoryList(nil) = %#v, want non-nil wrapper with empty slice", categoryList)
+	}
+
+	filledCategories := toMCPCategoryList(client.Categories{{ID: 7, Title: "Category"}})
+	if len(filledCategories.Categories) != 1 || filledCategories.Categories[0].ID != 7 {
+		t.Fatalf("toMCPCategoryList = %#v, want one non-nil category", filledCategories)
+	}
+}
+
+func TestToMCPFeedCountersConvertsKeysToStrings(t *testing.T) {
+	counters := toMCPFeedCounters(&client.FeedCounters{
+		ReadCounters:   map[int64]int{42: 3, 7: 1},
+		UnreadCounters: map[int64]int{42: 5},
+	})
+	if counters == nil {
+		t.Fatalf("toMCPFeedCounters = nil, want converted counters")
+	}
+	if counters.ReadCounters["42"] != 3 || counters.ReadCounters["7"] != 1 || counters.UnreadCounters["42"] != 5 {
+		t.Fatalf("counters = %#v, want int64 keys converted to strings", counters)
+	}
+
+	empty := toMCPFeedCounters(&client.FeedCounters{})
+	if empty.ReadCounters == nil || empty.UnreadCounters == nil {
+		t.Fatalf("counters = %#v, want empty non-nil maps", empty)
+	}
+	if toMCPFeedCounters(nil) != nil {
+		t.Fatalf("toMCPFeedCounters(nil) != nil, want nil")
+	}
+}
+
 func secretEntry() *client.Entry {
 	return &client.Entry{
 		ID:        1,
