@@ -299,7 +299,7 @@ func validateOrigin(allowedOrigins map[string]struct{}, next http.Handler) http.
 		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Last-Event-ID, Mcp-Protocol-Version, Mcp-Session-Id, X-Miniflux-Token")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Last-Event-ID, Mcp-Method, Mcp-Name, Mcp-Protocol-Version, Mcp-Session-Id, X-Miniflux-Token")
 			w.Header().Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
 

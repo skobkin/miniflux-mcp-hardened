@@ -182,6 +182,34 @@ func TestHTTPOriginAndBearerProtection(t *testing.T) {
 	}
 }
 
+func TestCORSPreflightAllowsModernProtocolRoutingHeaders(t *testing.T) {
+	const allowedOrigin = "https://client.example"
+	handler := validateOrigin(
+		map[string]struct{}{allowedOrigin: {}},
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
+
+	request := httptest.NewRequest(http.MethodOptions, "http://server.example/mcp", nil)
+	request.Header.Set("Origin", allowedOrigin)
+	request.Header.Set("Access-Control-Request-Method", "POST")
+	request.Header.Set("Access-Control-Request-Headers", "authorization, content-type, mcp-method, mcp-name, mcp-protocol-version")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("preflight status = %d, want %d", response.Code, http.StatusNoContent)
+	}
+	allowed := response.Header().Get("Access-Control-Allow-Headers")
+	for _, name := range []string{"Mcp-Method", "Mcp-Name", "Mcp-Protocol-Version", "Mcp-Session-Id"} {
+		if !strings.Contains(allowed, name) {
+			t.Fatalf("Access-Control-Allow-Headers = %q, want to include %s", allowed, name)
+		}
+	}
+}
+
 func TestHTTPProtectionPrecedenceIncludesDynamicCredentials(t *testing.T) {
 	const (
 		mcpToken      = "mcp-token"
