@@ -41,7 +41,35 @@ type toolCallResult struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"content"`
-	IsError bool `json:"isError"`
+	StructuredContent json.RawMessage `json:"structuredContent"`
+	IsError           bool            `json:"isError"`
+}
+
+// callToolResultNotice is the single pointer line the server puts in text
+// content; the payload travels only in structuredContent.
+const callToolResultNotice = "Tool result is delivered as structured content."
+
+// decodeCallToolResult returns the structured content payload of a
+// successful tool call and asserts the text channel carries no payload copy.
+func decodeCallToolResult(name string, result toolCallResult) (string, error) {
+	if result.IsError {
+		return "", fmt.Errorf("%s returned a tool error: %+v", name, result.Content)
+	}
+	if len(result.StructuredContent) == 0 {
+		return "", fmt.Errorf("%s returned no structured content", name)
+	}
+	if len(result.Content) != 1 {
+		return "", fmt.Errorf("%s returned %d content blocks, want the single notice", name, len(result.Content))
+	}
+	notice := result.Content[0]
+	if notice.Type != "text" {
+		return "", fmt.Errorf("%s content type = %q, want text", name, notice.Type)
+	}
+	if notice.Text != callToolResultNotice {
+		return "", fmt.Errorf("%s text content = %q, want the structured-content notice", name, notice.Text)
+	}
+
+	return string(result.StructuredContent), nil
 }
 
 type initializeResult struct {
@@ -117,15 +145,8 @@ func (c *rpcClient) callTool(name string, arguments map[string]any) (string, err
 	}, &result); err != nil {
 		return "", err
 	}
-	if result.IsError {
-		return "", fmt.Errorf("%s returned a tool error: %+v", name, result.Content)
-	}
-	for _, content := range result.Content {
-		if content.Type == "text" {
-			return content.Text, nil
-		}
-	}
-	return "", fmt.Errorf("%s returned no text content", name)
+
+	return decodeCallToolResult(name, result)
 }
 
 func (c *httpRPCClient) request(method string, params any, result any) error {
@@ -201,15 +222,8 @@ func (c *httpRPCClient) callTool(name string, arguments map[string]any) (string,
 	}, &result); err != nil {
 		return "", err
 	}
-	if result.IsError {
-		return "", fmt.Errorf("%s returned a tool error: %+v", name, result.Content)
-	}
-	for _, content := range result.Content {
-		if content.Type == "text" {
-			return content.Text, nil
-		}
-	}
-	return "", fmt.Errorf("%s returned no text content", name)
+
+	return decodeCallToolResult(name, result)
 }
 
 func startStdioMCPServer(t *testing.T, writeTools, clientName string, extraEnv ...string) *rpcClient {
@@ -289,8 +303,9 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 
 	var listed struct {
 		Tools []struct {
-			Name        string `json:"name"`
-			Annotations *struct {
+			Name         string          `json:"name"`
+			OutputSchema json.RawMessage `json:"outputSchema"`
+			Annotations  *struct {
 				ReadOnlyHint *bool `json:"readOnlyHint"`
 			} `json:"annotations"`
 		} `json:"tools"`
@@ -321,6 +336,19 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 		}
 	}
 
+	for _, tool := range listed.Tools {
+		if tool.Name == "healthcheck" {
+			if len(tool.OutputSchema) != 0 {
+				t.Errorf("prose tool %q unexpectedly advertised an output schema", tool.Name)
+			}
+
+			continue
+		}
+		if len(tool.OutputSchema) == 0 {
+			t.Errorf("tool %q did not advertise an output schema", tool.Name)
+		}
+	}
+
 	versionText, err := client.callTool("get_version", map[string]any{})
 	if err != nil {
 		t.Fatalf("get Miniflux version: %v", err)
@@ -339,13 +367,15 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get categories: %v", err)
 	}
-	var categories []struct {
-		ID int64 `json:"id"`
+	var categoryList struct {
+		Categories []struct {
+			ID int64 `json:"id"`
+		} `json:"categories"`
 	}
-	if err := json.Unmarshal([]byte(categoriesText), &categories); err != nil {
+	if err := json.Unmarshal([]byte(categoriesText), &categoryList); err != nil {
 		t.Fatalf("decode categories: %v", err)
 	}
-	if len(categories) == 0 {
+	if len(categoryList.Categories) == 0 {
 		t.Fatal("get_categories returned no categories")
 	}
 
@@ -641,7 +671,8 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 
 	var listed struct {
 		Tools []struct {
-			Name string `json:"name"`
+			Name         string          `json:"name"`
+			OutputSchema json.RawMessage `json:"outputSchema"`
 		} `json:"tools"`
 	}
 	if err := client.request("tools/list", map[string]any{}, &listed); err != nil {
@@ -650,6 +681,16 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 	toolNames := make([]string, 0, len(listed.Tools))
 	for _, tool := range listed.Tools {
 		toolNames = append(toolNames, tool.Name)
+		if tool.Name == "healthcheck" {
+			if len(tool.OutputSchema) != 0 {
+				t.Errorf("prose tool %q unexpectedly advertised an output schema", tool.Name)
+			}
+
+			continue
+		}
+		if len(tool.OutputSchema) == 0 {
+			t.Errorf("tool %q did not advertise an output schema", tool.Name)
+		}
 	}
 	for _, name := range []string{"get_version", "get_categories", "get_entries", "get_unread_digest"} {
 		if !slices.Contains(toolNames, name) {
@@ -668,6 +709,20 @@ func TestRemoteMCPServerWithMiniflux(t *testing.T) {
 		if slices.Contains(toolNames, name) {
 			t.Fatalf("remote tools/list unexpectedly included disabled write tool %q", name)
 		}
+	}
+
+	versionText, err := client.callTool("get_version", map[string]any{})
+	if err != nil {
+		t.Fatalf("call remote get_version: %v", err)
+	}
+	var version struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal([]byte(versionText), &version); err != nil {
+		t.Fatalf("decode remote Miniflux version: %v", err)
+	}
+	if version.Version == "" {
+		t.Fatal("remote get_version returned an empty version")
 	}
 
 	healthCommand := exec.Command(serverPath, "healthcheck")
