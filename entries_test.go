@@ -186,7 +186,7 @@ func TestContentOffsetValidationMessages(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := boundedEntryDetailResult(entry, test.contentOffset)
+			result, err := boundedEntryDetailResult(entry, contentFormatMarkdown, test.contentOffset)
 			if err != nil || result == nil || !result.IsError {
 				t.Fatalf("boundedEntryDetailResult = %#v, %v; want tool error", result, err)
 			}

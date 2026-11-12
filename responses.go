@@ -57,6 +57,7 @@ type MCPEntryDetail struct {
 	MCPEntrySummary
 	CommentsURL       string    `json:"comments_url"`
 	Content           string    `json:"content"`
+	ContentFormat     string    `json:"content_format"`
 	CreatedAt         time.Time `json:"created_at"`
 	ContentOffset     int       `json:"content_offset"`
 	NextContentOffset *int      `json:"next_content_offset,omitempty"`
@@ -190,7 +191,7 @@ func toMCPEntrySummary(entry *client.Entry) MCPEntrySummary {
 	}
 }
 
-func toMCPEntryDetail(entry *client.Entry, contentOffset, contentEnd int) *MCPEntryDetail {
+func toMCPEntryDetail(entry *client.Entry, format contentFormat, contentOffset, contentEnd int) *MCPEntryDetail {
 	if entry == nil {
 		return nil
 	}
@@ -204,6 +205,7 @@ func toMCPEntryDetail(entry *client.Entry, contentOffset, contentEnd int) *MCPEn
 		MCPEntrySummary:   toMCPEntrySummary(entry),
 		CommentsURL:       entry.CommentsURL,
 		Content:           entry.Content[contentOffset:contentEnd],
+		ContentFormat:     format.String(),
 		CreatedAt:         entry.CreatedAt,
 		ContentOffset:     contentOffset,
 		NextContentOffset: nextContentOffset,

@@ -3,6 +3,8 @@ module miniflux-mcp
 go 1.26.0
 
 require (
+	github.com/JohannesKaufmann/dom v0.3.1
+	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/mark3labs/mcp-go v1.5.0
 	golang.org/x/net v0.62.0
 	miniflux.app/v2 v2.3.5

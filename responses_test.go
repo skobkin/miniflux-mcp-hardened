@@ -282,7 +282,7 @@ func TestEntryDetailPagesLargeMultibyteContent(t *testing.T) {
 	content := strings.Repeat("<p>界 & quoted \"content\"</p>\n", 10000)
 	entry := secretEntry()
 	entry.Content = content
-	server := &MinifluxServer{client: &fakeMinifluxClient{entry: entry}}
+	server := &MinifluxServer{client: &fakeMinifluxClient{entry: entry}, contentFormat: contentFormatHTML}
 
 	var reconstructed strings.Builder
 	var offset int
@@ -337,7 +337,7 @@ func TestEntryDetailPagesLargeMultibyteContent(t *testing.T) {
 func TestEntryDetailReturnsLargestUTF8ChunkWithinBudget(t *testing.T) {
 	entry := secretEntry()
 	entry.Content = strings.Repeat("界", maximumContentResultBytes)
-	server := &MinifluxServer{client: &fakeMinifluxClient{entry: entry}}
+	server := &MinifluxServer{client: &fakeMinifluxClient{entry: entry}, contentFormat: contentFormatHTML}
 	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
 		"entry_id": float64(entry.ID),
 	}}}
@@ -354,7 +354,7 @@ func TestEntryDetailReturnsLargestUTF8ChunkWithinBudget(t *testing.T) {
 		t.Fatalf("paging metadata = %#v, want incomplete chunk", detail)
 	}
 	_, runeBytes := utf8.DecodeRuneInString(entry.Content[*detail.NextContentOffset:])
-	tooLarge, err := marshalCompactToolResult(toMCPEntryDetail(entry, 0, *detail.NextContentOffset+runeBytes))
+	tooLarge, err := marshalCompactToolResult(toMCPEntryDetail(entry, contentFormatMarkdown, 0, *detail.NextContentOffset+runeBytes))
 	if err != nil {
 		t.Fatalf("encode next larger chunk: %v", err)
 	}

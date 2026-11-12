@@ -491,8 +491,12 @@ func (s *MinifluxServer) GetUnreadDigest(ctx context.Context, request mcp.CallTo
 	if len(digestCandidates) > options.limit {
 		digestCandidates = digestCandidates[:options.limit]
 	}
+	presented, err := s.entriesWithPresentedContent(digestCandidates)
+	if err != nil {
+		return toolErrorResult("failed to process article content")
+	}
 
-	return boundedUnreadDigestResult(digestCandidates, scanTruncated)
+	return boundedUnreadDigestResult(presented, scanTruncated)
 }
 
 func boundedUnreadDigestResult(entries client.Entries, scanTruncated bool) (*mcp.CallToolResult, error) {
@@ -633,11 +637,15 @@ func (s *MinifluxServer) GetEntry(ctx context.Context, request mcp.CallToolReque
 	if err != nil || entry == nil {
 		return backendToolErrorResult(err, "failed to fetch entry")
 	}
+	entry, err = s.entryWithPresentedContent(entry)
+	if err != nil {
+		return toolErrorResult("failed to process article content")
+	}
 
-	return boundedEntryDetailResult(entry, contentOffset)
+	return boundedEntryDetailResult(entry, s.contentFormat, contentOffset)
 }
 
-func boundedEntryDetailResult(entry *client.Entry, contentOffset int64) (*mcp.CallToolResult, error) {
+func boundedEntryDetailResult(entry *client.Entry, format contentFormat, contentOffset int64) (*mcp.CallToolResult, error) {
 	entry = entryWithValidUTF8Content(entry)
 	if contentOffset > int64(len(entry.Content)) {
 		return toolErrorResult("content_offset exceeds content length; use 0 or next_content_offset from the previous response")
@@ -647,7 +655,7 @@ func boundedEntryDetailResult(entry *client.Entry, contentOffset int64) (*mcp.Ca
 		return toolErrorResult("content_offset must be 0 or a next_content_offset returned by the previous response")
 	}
 
-	fullResult, err := marshalCompactToolResult(toMCPEntryDetail(entry, offset, len(entry.Content)))
+	fullResult, err := marshalCompactToolResult(toMCPEntryDetail(entry, format, offset, len(entry.Content)))
 	if err != nil {
 		return fullResult, err
 	}
@@ -661,7 +669,7 @@ func boundedEntryDetailResult(entry *client.Entry, contentOffset int64) (*mcp.Ca
 
 	_, firstRuneBytes := utf8.DecodeRuneInString(entry.Content[offset:])
 	firstEnd := offset + firstRuneBytes
-	minimumResult, err := marshalCompactToolResult(toMCPEntryDetail(entry, offset, firstEnd))
+	minimumResult, err := marshalCompactToolResult(toMCPEntryDetail(entry, format, offset, firstEnd))
 	if err != nil {
 		return minimumResult, err
 	}
@@ -687,7 +695,7 @@ func boundedEntryDetailResult(entry *client.Entry, contentOffset int64) (*mcp.Ca
 
 			continue
 		}
-		result, err := marshalCompactToolResult(toMCPEntryDetail(entry, offset, candidateEnd))
+		result, err := marshalCompactToolResult(toMCPEntryDetail(entry, format, offset, candidateEnd))
 		if err != nil {
 			return result, err
 		}
@@ -842,8 +850,12 @@ func (s *MinifluxServer) GetFeedEntry(ctx context.Context, request mcp.CallToolR
 	if err != nil || entry == nil {
 		return backendToolErrorResult(err, "failed to fetch feed entry")
 	}
+	entry, err = s.entryWithPresentedContent(entry)
+	if err != nil {
+		return toolErrorResult("failed to process article content")
+	}
 
-	return boundedEntryDetailResult(entry, contentOffset)
+	return boundedEntryDetailResult(entry, s.contentFormat, contentOffset)
 }
 
 func (s *MinifluxServer) GetCategoryFeeds(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -905,8 +917,12 @@ func (s *MinifluxServer) GetCategoryEntry(ctx context.Context, request mcp.CallT
 	if err != nil || entry == nil {
 		return backendToolErrorResult(err, "failed to fetch category entry")
 	}
+	entry, err = s.entryWithPresentedContent(entry)
+	if err != nil {
+		return toolErrorResult("failed to process article content")
+	}
 
-	return boundedEntryDetailResult(entry, contentOffset)
+	return boundedEntryDetailResult(entry, s.contentFormat, contentOffset)
 }
 
 func (s *MinifluxServer) ToggleStarred(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

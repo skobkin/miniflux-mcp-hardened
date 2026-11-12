@@ -16,6 +16,7 @@ import (
 
 type MinifluxServer struct {
 	client                minifluxClient
+	contentFormat         contentFormat
 	toolHandlerMiddleware server.ToolHandlerMiddleware
 }
 
@@ -133,6 +134,10 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("invalid write-tool configuration: %w", err)
 	}
+	contentFormat, err := parseContentFormat(os.Getenv(contentFormatEnvironmentVariable))
+	if err != nil {
+		return fmt.Errorf("invalid content-format configuration: %w", err)
+	}
 	minifluxCfg, err := loadMinifluxConfig()
 	if err != nil {
 		return err
@@ -148,6 +153,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	minifluxServer.contentFormat = contentFormat
 	mcpServer := server.NewMCPServer(
 		"miniflux-mcp",
 		Version,
