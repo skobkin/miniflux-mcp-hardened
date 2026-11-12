@@ -83,7 +83,7 @@ steps:
         done
 
   miniflux:
-    image: miniflux/miniflux:2.3.3
+    image: miniflux/miniflux:2.3.5
     detach: true
     depends_on:
       - wait-database

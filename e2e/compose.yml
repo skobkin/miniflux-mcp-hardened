@@ -17,7 +17,7 @@ services:
       MCP_AUTH_TOKEN: e2e-secret
 
   miniflux:
-    image: miniflux/miniflux:2.3.3
+    image: miniflux/miniflux:2.3.5
     ports:
       - "8080:8080"
     depends_on:
