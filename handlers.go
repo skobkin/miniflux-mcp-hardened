@@ -501,7 +501,7 @@ func boundedUnreadDigestResult(entries client.Entries, scanTruncated bool, forma
 	responseSizeLimited := false
 	var baseResult *mcp.CallToolResult
 	for {
-		digest := buildUnreadDigest(presented[:included], 0, scanTruncated, responseSizeLimited)
+		digest := buildUnreadDigest(presented[:included], format, 0, scanTruncated, responseSizeLimited)
 		result, err := marshalCompactToolResult(digest)
 		if err != nil {
 			return result, err
@@ -534,7 +534,7 @@ func boundedUnreadDigestResult(entries client.Entries, scanTruncated bool, forma
 	low, high := 1, maximumDigestExcerptBytes
 	for low <= high {
 		candidateLimit := low + (high-low)/2
-		digest := buildUnreadDigest(presented[:included], candidateLimit, scanTruncated, responseSizeLimited)
+		digest := buildUnreadDigest(presented[:included], format, candidateLimit, scanTruncated, responseSizeLimited)
 		result, err := marshalCompactToolResult(digest)
 		if err != nil {
 			return result, err
@@ -554,7 +554,7 @@ func boundedUnreadDigestResult(entries client.Entries, scanTruncated bool, forma
 	return bestResult, nil
 }
 
-func buildUnreadDigest(entries client.Entries, excerptLimit int, scanTruncated, responseSizeLimited bool) MCPUnreadDigest {
+func buildUnreadDigest(entries client.Entries, format contentFormat, excerptLimit int, scanTruncated, responseSizeLimited bool) MCPUnreadDigest {
 	digestEntries := make([]MCPDigestEntry, 0, len(entries))
 	ackEntryIDs := make([]int64, 0, len(entries))
 	for _, entry := range entries {
@@ -567,6 +567,7 @@ func buildUnreadDigest(entries client.Entries, excerptLimit int, scanTruncated, 
 	return MCPUnreadDigest{
 		Entries:             digestEntries,
 		AckEntryIDs:         ackEntryIDs,
+		ContentFormat:       format.String(),
 		ScanTruncated:       scanTruncated,
 		ResponseSizeLimited: responseSizeLimited,
 	}

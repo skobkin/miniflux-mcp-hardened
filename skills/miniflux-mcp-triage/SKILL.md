@@ -109,7 +109,7 @@ get_unread_digest(
 )
 ```
 
-The digest returns unread entries oldest first, defaults to 10, accepts at most 20, and includes bounded converted Markdown `content_excerpt`, `content_truncated`, and matching `ack_entry_ids`. The encoded response is limited to approximately 96 KiB, with at most approximately 8 KiB of excerpt per entry and a shared batch budget.
+The digest returns unread entries oldest first, defaults to 10, accepts at most 20, and includes bounded `content_excerpt` excerpts in the response's `content_format` (Markdown by default), `content_truncated`, and matching `ack_entry_ids`. The encoded response is limited to approximately 96 KiB, with at most approximately 8 KiB of excerpt per entry and a shared batch budget.
 
 Use optional `since`, `feed_id`, `category_ids`, and `exclude_category_ids` filters when the user supplies the corresponding scope. `since` applies to publication time; do not invent a timezone or day boundary. Feed and category filters intersect. Include and exclude category filters may be combined, and exclusions win.
 

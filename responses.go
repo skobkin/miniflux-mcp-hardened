@@ -91,6 +91,7 @@ type MCPDigestEntry struct {
 type MCPUnreadDigest struct {
 	Entries             []MCPDigestEntry `json:"entries"`
 	AckEntryIDs         []int64          `json:"ack_entry_ids"`
+	ContentFormat       string           `json:"content_format"`
 	ScanTruncated       bool             `json:"scan_truncated"`
 	ResponseSizeLimited bool             `json:"response_size_limited,omitempty"`
 }

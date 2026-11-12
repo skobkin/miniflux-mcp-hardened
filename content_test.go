@@ -172,6 +172,9 @@ func TestGetUnreadDigestExcerptsAreMarkdown(t *testing.T) {
 	if len(digest.Entries) != 1 {
 		t.Fatalf("digest entries = %d, want 1", len(digest.Entries))
 	}
+	if digest.ContentFormat != "markdown" {
+		t.Fatalf("digest content_format = %q, want markdown", digest.ContentFormat)
+	}
 	excerpt := digest.Entries[0].ContentExcerpt
 	if !strings.Contains(excerpt, "digest body") {
 		t.Fatalf("excerpt = %q, want converted article text", excerpt)
@@ -335,5 +338,27 @@ func TestHardeningConverterRemovesInertContainers(t *testing.T) {
 				t.Fatalf("output = %q, want %q removed", output, test.notWant)
 			}
 		})
+	}
+}
+
+func TestGetUnreadDigestDisclosesHTMLFormat(t *testing.T) {
+	entry := &client.Entry{ID: 3, Status: client.EntryStatusUnread, Content: `<p>html mode body</p>`}
+	fake := &fakeMinifluxClient{entries: &client.EntryResultSet{Entries: client.Entries{entry}, Total: 1}}
+	server := &MinifluxServer{client: fake, contentFormat: contentFormatHTML}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{}}}
+
+	result, err := server.GetUnreadDigest(context.Background(), request)
+	if err != nil || result.IsError {
+		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
+	}
+	var digest MCPUnreadDigest
+	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
+		t.Fatalf("decode digest: %v", err)
+	}
+	if digest.ContentFormat != "html" {
+		t.Fatalf("digest content_format = %q, want html", digest.ContentFormat)
+	}
+	if !strings.Contains(digest.Entries[0].ContentExcerpt, "<p>html mode body</p>") {
+		t.Fatalf("html mode excerpt = %q, want normalized original HTML", digest.Entries[0].ContentExcerpt)
 	}
 }
