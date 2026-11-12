@@ -189,15 +189,16 @@ func renderEntryMarkdown(content, baseURL string) (string, error) {
 	return entryContentConverter.ConvertString(content, options...)
 }
 
-// entryWithPresentedContent returns a copy of the entry whose content is
-// presented in the configured format: normalized HTML, or Markdown converted
-// from the HTML. The original entry is never mutated because clients may
-// share entry pointers across paginated calls.
-func (s *MinifluxServer) entryWithPresentedContent(entry *client.Entry) (*client.Entry, error) {
+// entryWithPresentedContent returns an entry whose content is presented in
+// the configured format: normalized HTML, or Markdown converted from the
+// HTML. The input entry is never mutated because clients may share entry
+// pointers across paginated calls; in HTML mode the input may be returned
+// unchanged.
+func entryWithPresentedContent(entry *client.Entry, format contentFormat) (*client.Entry, error) {
 	if entry == nil {
 		return nil, nil
 	}
-	if s.contentFormat == contentFormatHTML {
+	if format == contentFormatHTML {
 		return entryWithValidUTF8Content(entry), nil
 	}
 	markdown, err := renderEntryMarkdown(validUTF8(entry.Content), entry.URL)
@@ -211,14 +212,14 @@ func (s *MinifluxServer) entryWithPresentedContent(entry *client.Entry) (*client
 	return &result, nil
 }
 
-// entriesWithPresentedContent applies entryWithPresentedContent to a batch.
-func (s *MinifluxServer) entriesWithPresentedContent(entries client.Entries) (client.Entries, error) {
-	if s.contentFormat == contentFormatHTML {
+// presentEntries applies entryWithPresentedContent to a batch.
+func presentEntries(entries client.Entries, format contentFormat) (client.Entries, error) {
+	if format == contentFormatHTML {
 		return entries, nil
 	}
 	presented := make(client.Entries, 0, len(entries))
 	for _, entry := range entries {
-		entry, err := s.entryWithPresentedContent(entry)
+		entry, err := entryWithPresentedContent(entry, format)
 		if err != nil {
 
 			return nil, err

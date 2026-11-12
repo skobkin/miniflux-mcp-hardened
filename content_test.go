@@ -42,9 +42,6 @@ func TestParseContentFormat(t *testing.T) {
 			if format != test.want {
 				t.Fatalf("parseContentFormat(%q) = %v, want %v", test.value, format, test.want)
 			}
-			if format.String() != test.want.String() {
-				t.Fatalf("format String() = %q, want %q", format.String(), test.want.String())
-			}
 		})
 	}
 }
@@ -187,13 +184,12 @@ func TestGetUnreadDigestExcerptsAreMarkdown(t *testing.T) {
 func TestEntryWithPresentedContentDoesNotMutateOriginal(t *testing.T) {
 	content := `<p><b>bold</b> body</p>`
 	entry := &client.Entry{ID: 5, URL: "https://example.com/x", Content: content}
-	server := &MinifluxServer{}
 
-	first, err := server.entryWithPresentedContent(entry)
+	first, err := entryWithPresentedContent(entry, contentFormatMarkdown)
 	if err != nil {
 		t.Fatalf("entryWithPresentedContent = %v", err)
 	}
-	second, err := server.entryWithPresentedContent(entry)
+	second, err := entryWithPresentedContent(entry, contentFormatMarkdown)
 	if err != nil {
 		t.Fatalf("second entryWithPresentedContent = %v", err)
 	}
@@ -210,8 +206,7 @@ func TestEntryWithPresentedContentDoesNotMutateOriginal(t *testing.T) {
 
 func TestEntryWithPresentedContentHTMLOptOutKeepsBehavior(t *testing.T) {
 	entry := &client.Entry{ID: 5, Content: "<p>raw</p>"}
-	server := &MinifluxServer{contentFormat: contentFormatHTML}
-	presented, err := server.entryWithPresentedContent(entry)
+	presented, err := entryWithPresentedContent(entry, contentFormatHTML)
 	if err != nil {
 		t.Fatalf("entryWithPresentedContent = %v", err)
 	}
