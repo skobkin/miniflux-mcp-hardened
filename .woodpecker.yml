@@ -18,7 +18,7 @@ clone:
 
 steps:
   fmt:
-    image: golang:latest
+    image: golang:1.27
     commands:
       - |
         fmt_out=$(gofmt -l .)
@@ -29,7 +29,7 @@ steps:
         fi
 
   lint:
-    image: golangci/golangci-lint:v2.12.2-alpine
+    image: golangci/golangci-lint:v2.15.0-alpine
     environment:
       XDG_CACHE_HOME: /tmp/.cache
       GOCACHE: /tmp/.gocache
@@ -37,14 +37,14 @@ steps:
       - golangci-lint run --config .golangci.yml ./...
 
   vet:
-    image: golang:latest
+    image: golang:1.27
     environment:
       GOCACHE: /tmp/.gocache
     commands:
       - go vet ./...
 
   test:
-    image: golang:latest
+    image: golang:1.27
     environment:
       GOCACHE: /tmp/.gocache
     commands:
@@ -52,7 +52,7 @@ steps:
       - go test ./...
 
   test-race:
-    image: golang:latest
+    image: golang:1.27
     environment:
       GOCACHE: /tmp/.gocache-race
     commands:
@@ -112,7 +112,7 @@ steps:
         done
 
   e2e:
-    image: golang:latest
+    image: golang:1.27
     depends_on:
       - wait-miniflux
     environment:
@@ -121,7 +121,7 @@ steps:
       - make e2e-test E2E_MINIFLUX_URL=http://miniflux:8080
 
   build:
-    image: golang:latest
+    image: golang:1.27
     depends_on:
       - fmt
       - lint

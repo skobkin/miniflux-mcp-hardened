@@ -1,4 +1,4 @@
-FROM golang:alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 ARG VERSION=dev
 ARG REVISION=unknown
