@@ -17,15 +17,23 @@ import (
 )
 
 const (
-	defaultEntryLimit           = 50
-	maximumEntryLimit           = 100
-	defaultDigestEntryLimit     = 10
-	maximumDigestEntryLimit     = 20
-	maximumDigestExcerptBytes   = 8 * 1024
-	maximumContentResultBytes   = 96 * 1024
-	maximumSafeJSONInteger      = 1<<53 - 1
-	maximumDigestCandidates     = 1000
-	maximumFreeFormStringLength = 4096
+	defaultEntryLimit         = 50
+	maximumEntryLimit         = 100
+	defaultDigestEntryLimit   = 10
+	maximumDigestEntryLimit   = 20
+	maximumDigestExcerptBytes = 8 * 1024
+	maximumContentResultBytes = 96 * 1024
+	// modernProtocolMetadataOverheadBytes reserves room for the protocol
+	// metadata mcp-go stamps onto tool results of MCP 2026-07-28 requests
+	// after the handler returns ("resultType" and "_meta" with the server
+	// implementation identity). Bounded results are measured before that
+	// stamping, so the reserve keeps the transported response within
+	// maximumContentResultBytes. The regression test pins this constant to
+	// the metadata the installed mcp-go version actually writes.
+	modernProtocolMetadataOverheadBytes = 512
+	maximumSafeJSONInteger              = 1<<53 - 1
+	maximumDigestCandidates             = 1000
+	maximumFreeFormStringLength         = 4096
 )
 
 var (
@@ -226,13 +234,18 @@ func marshalCompactToolResult(value interface{}) (*mcp.CallToolResult, error) {
 	return mcp.NewToolResultText(string(encoded)), nil
 }
 
+// encodedToolResultSize reports the transported size of a tool result: the
+// encoded result plus modernProtocolMetadataOverheadBytes for the metadata
+// mcp-go adds to MCP 2026-07-28 responses after the handler returns. Size
+// budgeting must use this instead of a raw json.Marshal length, or results
+// sized exactly to the cap would exceed it on the wire for modern clients.
 func encodedToolResultSize(result *mcp.CallToolResult) (int, error) {
 	data, err := json.Marshal(result)
 	if err != nil {
 		return 0, err
 	}
 
-	return len(data), nil
+	return len(data) + modernProtocolMetadataOverheadBytes, nil
 }
 
 func (s *MinifluxServer) GetFeeds(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {

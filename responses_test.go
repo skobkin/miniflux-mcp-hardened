@@ -367,6 +367,70 @@ func TestEntryDetailReturnsLargestUTF8ChunkWithinBudget(t *testing.T) {
 	}
 }
 
+// decoratedToolResultEncodedSize applies the protocol metadata mcp-go stamps
+// onto tool results of MCP 2026-07-28 requests after the handler returns and
+// reports the encoded size of the transported result.
+func decoratedToolResultEncodedSize(t *testing.T, result *mcp.CallToolResult) int {
+	t.Helper()
+
+	decorated := *result
+	decorated.SetResultType(mcp.ResultTypeComplete)
+	decorated.EnsureResultMeta().SetServerInfo(mcp.Implementation{Name: "miniflux-mcp", Version: Version})
+	encoded, err := json.Marshal(&decorated)
+	if err != nil {
+		t.Fatalf("encode decorated tool result: %v", err)
+	}
+
+	return len(encoded)
+}
+
+func TestEncodedToolResultSizeCoversModernProtocolMetadata(t *testing.T) {
+	result := mcp.NewToolResultText(strings.Repeat("x", 4096))
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("encode undecorated tool result: %v", err)
+	}
+	wire := decoratedToolResultEncodedSize(t, result)
+	if wire <= len(raw) {
+		t.Fatalf("modern protocol metadata added no bytes: raw %d, decorated %d", len(raw), wire)
+	}
+	reserved, err := encodedToolResultSize(result)
+	if err != nil {
+		t.Fatalf("measure tool result: %v", err)
+	}
+	if reserved < wire {
+		t.Fatalf("reserved size %d is below decorated wire size %d: increase modernProtocolMetadataOverheadBytes", reserved, wire)
+	}
+}
+
+func TestEntryDetailResultStaysWithinBudgetAfterModernDecoration(t *testing.T) {
+	entry := secretEntry()
+	entry.Content = strings.Repeat("a", maximumContentResultBytes)
+	server := &MinifluxServer{client: &fakeMinifluxClient{entry: entry}}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+		"entry_id": float64(entry.ID),
+	}}}
+
+	result, err := server.GetEntry(context.Background(), request)
+	if err != nil || result.IsError {
+		t.Fatalf("GetEntry = %#v, %v", result, err)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("encode tool result: %v", err)
+	}
+	if wire := decoratedToolResultEncodedSize(t, result); wire > maximumContentResultBytes {
+		t.Fatalf("transported result size = %d (undecorated %d), want <= %d", wire, len(raw), maximumContentResultBytes)
+	}
+	var detail MCPEntryDetail
+	if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
+		t.Fatalf("decode entry detail: %v", err)
+	}
+	if detail.ContentComplete || detail.NextContentOffset == nil {
+		t.Fatalf("paging metadata = %#v, want incomplete chunk", detail)
+	}
+}
+
 func TestEntryDetailNormalizesInvalidUTF8BeforePaging(t *testing.T) {
 	entry := secretEntry()
 	entry.Content = "before\xffafter"

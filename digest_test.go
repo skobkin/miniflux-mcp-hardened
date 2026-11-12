@@ -319,6 +319,33 @@ func TestGetUnreadDigestSharesExcerptBudgetAcrossMaximumBatch(t *testing.T) {
 	}
 }
 
+func TestUnreadDigestStaysWithinBudgetAfterModernDecoration(t *testing.T) {
+	entries := make(client.Entries, maximumDigestEntryLimit)
+	content := strings.Repeat("界<&\"", 5000)
+	for i := range entries {
+		entries[i] = &client.Entry{ID: int64(i + 1), Content: content}
+	}
+	fake := &fakeMinifluxClient{entries: &client.EntryResultSet{Total: len(entries), Entries: entries}}
+	request := mcp.CallToolRequest{Params: mcp.CallToolParams{Arguments: map[string]interface{}{
+		"limit": float64(maximumDigestEntryLimit),
+	}}}
+
+	result, err := (&MinifluxServer{client: fake}).GetUnreadDigest(context.Background(), request)
+	if err != nil || result.IsError {
+		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
+	}
+	if wire := decoratedToolResultEncodedSize(t, result); wire > maximumContentResultBytes {
+		t.Fatalf("transported digest size = %d, want <= %d", wire, maximumContentResultBytes)
+	}
+	var digest MCPUnreadDigest
+	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
+		t.Fatalf("decode digest: %v", err)
+	}
+	if len(digest.Entries) != maximumDigestEntryLimit {
+		t.Fatalf("entries = %d, want %d", len(digest.Entries), maximumDigestEntryLimit)
+	}
+}
+
 func TestGetUnreadDigestNormalizesInvalidUTF8Content(t *testing.T) {
 	entry := &client.Entry{ID: 1, Content: "before\xffafter"}
 	fake := &fakeMinifluxClient{entries: &client.EntryResultSet{Total: 1, Entries: client.Entries{entry}}}
