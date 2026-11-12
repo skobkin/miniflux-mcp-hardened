@@ -100,11 +100,8 @@ func TestGetUnreadDigestBuildsBoundedOrderedResponse(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
 	}
-	var digest MCPUnreadDigest
-	text := resultText(t, result)
-	if err := json.Unmarshal([]byte(text), &digest); err != nil {
-		t.Fatalf("decode digest: %v", err)
-	}
+	text := structuredResultText(t, result)
+	digest := decodeStructuredResult[MCPUnreadDigest](t, result)
 	if strings.Contains(text, `"content":`) {
 		t.Fatal("digest returned an unbounded content field")
 	}
@@ -210,10 +207,7 @@ func TestGetUnreadDigestSortsAcrossCategoryPages(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
 	}
-	var digest MCPUnreadDigest
-	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
-		t.Fatalf("decode digest: %v", err)
-	}
+	digest := decodeStructuredResult[MCPUnreadDigest](t, result)
 	if !reflect.DeepEqual(digest.AckEntryIDs, []int64{10, 20}) {
 		t.Fatalf("ack_entry_ids = %v, want [10 20]", digest.AckEntryIDs)
 	}
@@ -230,7 +224,7 @@ func TestGetUnreadDigestSanitizesNestedFeed(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
 	}
-	text := resultText(t, result)
+	text := structuredResultText(t, result)
 	if !strings.Contains(text, "article content") {
 		t.Fatalf("digest omitted content: %s", text)
 	}
@@ -263,11 +257,7 @@ func TestGetUnreadDigestBoundsLargeArticleBatch(t *testing.T) {
 	if len(encoded) > maximumContentResultBytes {
 		t.Fatalf("encoded result size = %d, want <= %d", len(encoded), maximumContentResultBytes)
 	}
-	var digest MCPUnreadDigest
-	text := resultText(t, result)
-	if err := json.Unmarshal([]byte(text), &digest); err != nil {
-		t.Fatalf("decode digest: %v", err)
-	}
+	digest := decodeStructuredResult[MCPUnreadDigest](t, result)
 	if len(digest.Entries) != 5 || !reflect.DeepEqual(digest.AckEntryIDs, []int64{1, 2, 3, 4, 5}) {
 		t.Fatalf("digest batch = %#v, ack IDs = %v", digest.Entries, digest.AckEntryIDs)
 	}
@@ -276,8 +266,8 @@ func TestGetUnreadDigestBoundsLargeArticleBatch(t *testing.T) {
 			t.Errorf("entry %d excerpt = %#v", i, entry)
 		}
 	}
-	if strings.Contains(text, `\u003c`) {
-		t.Fatal("digest unnecessarily HTML-escaped article excerpts")
+	if !strings.Contains(digest.Entries[0].ContentExcerpt, "large & quoted") {
+		t.Fatal("digest excerpt lost article characters")
 	}
 }
 
@@ -303,10 +293,7 @@ func TestGetUnreadDigestSharesExcerptBudgetAcrossMaximumBatch(t *testing.T) {
 	if len(encoded) > maximumContentResultBytes {
 		t.Fatalf("encoded result size = %d, want <= %d", len(encoded), maximumContentResultBytes)
 	}
-	var digest MCPUnreadDigest
-	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
-		t.Fatalf("decode digest: %v", err)
-	}
+	digest := decodeStructuredResult[MCPUnreadDigest](t, result)
 	if len(digest.Entries) != maximumDigestEntryLimit {
 		t.Fatalf("entries = %d, want %d", len(digest.Entries), maximumDigestEntryLimit)
 	}
@@ -342,10 +329,7 @@ func TestUnreadDigestStaysWithinBudgetAfterModernDecoration(t *testing.T) {
 	if wire := decoratedToolResultEncodedSize(t, result); wire > maximumContentResultBytes {
 		t.Fatalf("transported digest size = %d, want <= %d", wire, maximumContentResultBytes)
 	}
-	var digest MCPUnreadDigest
-	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
-		t.Fatalf("decode digest: %v", err)
-	}
+	digest := decodeStructuredResult[MCPUnreadDigest](t, result)
 	if len(digest.Entries) != maximumDigestEntryLimit {
 		t.Fatalf("entries = %d, want %d", len(digest.Entries), maximumDigestEntryLimit)
 	}
@@ -359,10 +343,7 @@ func TestGetUnreadDigestNormalizesInvalidUTF8Content(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
 	}
-	var digest MCPUnreadDigest
-	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
-		t.Fatalf("decode digest: %v", err)
-	}
+	digest := decodeStructuredResult[MCPUnreadDigest](t, result)
 	if len(digest.Entries) != 1 {
 		t.Fatalf("entries = %d, want 1", len(digest.Entries))
 	}
@@ -391,11 +372,8 @@ func TestGetUnreadDigestLimitsBatchWhenMetadataExceedsBudget(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
 	}
-	var digest MCPUnreadDigest
-	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
-		t.Fatalf("decode digest: %v", err)
-	}
-	if !strings.Contains(resultText(t, result), `"response_size_limited":true`) {
+	digest := decodeStructuredResult[MCPUnreadDigest](t, result)
+	if !strings.Contains(structuredResultText(t, result), `"response_size_limited":true`) {
 		t.Fatal("size-limited digest omitted active response_size_limited field")
 	}
 	if !digest.ResponseSizeLimited || len(digest.Entries) == 0 || len(digest.Entries) >= len(entries) {
@@ -424,10 +402,7 @@ func TestGetUnreadDigestReportsScanCap(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
 	}
-	var digest MCPUnreadDigest
-	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
-		t.Fatalf("decode digest: %v", err)
-	}
+	digest := decodeStructuredResult[MCPUnreadDigest](t, result)
 	if !digest.ScanTruncated {
 		t.Fatal("scan_truncated = false, want true")
 	}
@@ -446,10 +421,7 @@ func TestGetUnreadDigestDoesNotReportExhaustedScanAsTruncated(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
 	}
-	var digest MCPUnreadDigest
-	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
-		t.Fatalf("decode digest: %v", err)
-	}
+	digest := decodeStructuredResult[MCPUnreadDigest](t, result)
 	if digest.ScanTruncated {
 		t.Fatal("scan_truncated = true for exhausted candidate set")
 	}

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -213,25 +212,26 @@ func enumStringValue(value interface{}, name string, allowed ...string) (string,
 	return parsed, nil
 }
 
-func marshalToolResult(value interface{}) (*mcp.CallToolResult, error) {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
+// structuredResultNoticeText is the only text content accompanying
+// structured tool results. Clients that support MCP structured output read
+// the typed payload from structuredContent; the notice keeps the content
+// array non-empty for anything that only looks at text.
+const structuredResultNoticeText = "Tool result is delivered as structured content."
+
+// structuredToolResult returns the value as typed structuredContent without
+// duplicating it as JSON text. Results built by this helper are measured by
+// encodedToolResultSize, which marshals the whole CallToolResult including
+// the structured content, so response size budgeting keeps covering exactly
+// the transported bytes.
+func structuredToolResult(value any) (*mcp.CallToolResult, error) {
+	if _, err := json.Marshal(value); err != nil {
 		return toolErrorResult("failed to encode response")
 	}
 
-	return mcp.NewToolResultText(string(data)), nil
-}
-
-func marshalCompactToolResult(value interface{}) (*mcp.CallToolResult, error) {
-	var data bytes.Buffer
-	encoder := json.NewEncoder(&data)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return toolErrorResult("failed to encode response")
-	}
-	encoded := bytes.TrimSuffix(data.Bytes(), []byte{'\n'})
-
-	return mcp.NewToolResultText(string(encoded)), nil
+	return &mcp.CallToolResult{
+		Content:           []mcp.Content{mcp.NewTextContent(structuredResultNoticeText)},
+		StructuredContent: value,
+	}, nil
 }
 
 // encodedToolResultSize reports the transported size of a tool result: the
@@ -254,7 +254,7 @@ func (s *MinifluxServer) GetFeeds(ctx context.Context, _ mcp.CallToolRequest) (*
 		return backendToolErrorResult(err, "failed to fetch feeds")
 	}
 
-	return marshalToolResult(toMCPFeeds(feeds))
+	return structuredToolResult(toMCPFeedList(feeds))
 }
 
 func (s *MinifluxServer) GetFeed(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -267,11 +267,11 @@ func (s *MinifluxServer) GetFeed(ctx context.Context, request mcp.CallToolReques
 		return result, nil
 	}
 	feed, err := s.client.FeedContext(ctx, feedID)
-	if err != nil {
+	if err != nil || feed == nil {
 		return backendToolErrorResult(err, "failed to fetch feed")
 	}
 
-	return marshalToolResult(toMCPFeed(feed))
+	return structuredToolResult(toMCPFeed(feed))
 }
 
 func parseEntryFilter(arguments map[string]interface{}) (*client.Filter, *mcp.CallToolResult) {
@@ -386,7 +386,7 @@ func (s *MinifluxServer) GetEntries(ctx context.Context, request mcp.CallToolReq
 		return backendToolErrorResult(err, "failed to fetch entries")
 	}
 
-	return marshalToolResult(toMCPEntryResultSet(entries))
+	return structuredToolResult(toMCPEntryResultSet(entries))
 }
 
 type unreadDigestOptions struct {
@@ -502,7 +502,7 @@ func boundedUnreadDigestResult(entries client.Entries, scanTruncated bool, forma
 	var baseResult *mcp.CallToolResult
 	for {
 		digest := buildUnreadDigest(presented[:included], format, 0, scanTruncated, responseSizeLimited)
-		result, err := marshalCompactToolResult(digest)
+		result, err := structuredToolResult(digest)
 		if err != nil {
 			return result, err
 		}
@@ -535,7 +535,7 @@ func boundedUnreadDigestResult(entries client.Entries, scanTruncated bool, forma
 	for low <= high {
 		candidateLimit := low + (high-low)/2
 		digest := buildUnreadDigest(presented[:included], format, candidateLimit, scanTruncated, responseSizeLimited)
-		result, err := marshalCompactToolResult(digest)
+		result, err := structuredToolResult(digest)
 		if err != nil {
 			return result, err
 		}
@@ -652,7 +652,7 @@ func boundedEntryDetailResult(entry *client.Entry, format contentFormat, content
 		return toolErrorResult("content_offset must be 0 or a next_content_offset returned by the previous response")
 	}
 
-	fullResult, err := marshalCompactToolResult(toMCPEntryDetail(entry, format, offset, len(entry.Content)))
+	fullResult, err := structuredToolResult(toMCPEntryDetail(entry, format, offset, len(entry.Content)))
 	if err != nil {
 		return fullResult, err
 	}
@@ -666,7 +666,7 @@ func boundedEntryDetailResult(entry *client.Entry, format contentFormat, content
 
 	_, firstRuneBytes := utf8.DecodeRuneInString(entry.Content[offset:])
 	firstEnd := offset + firstRuneBytes
-	minimumResult, err := marshalCompactToolResult(toMCPEntryDetail(entry, format, offset, firstEnd))
+	minimumResult, err := structuredToolResult(toMCPEntryDetail(entry, format, offset, firstEnd))
 	if err != nil {
 		return minimumResult, err
 	}
@@ -692,7 +692,7 @@ func boundedEntryDetailResult(entry *client.Entry, format contentFormat, content
 
 			continue
 		}
-		result, err := marshalCompactToolResult(toMCPEntryDetail(entry, format, offset, candidateEnd))
+		result, err := structuredToolResult(toMCPEntryDetail(entry, format, offset, candidateEnd))
 		if err != nil {
 			return result, err
 		}
@@ -752,7 +752,7 @@ func (s *MinifluxServer) UpdateEntriesStatus(ctx context.Context, request mcp.Ca
 		return backendToolErrorResult(err, "failed to update entries status")
 	}
 
-	return marshalToolResult(MCPEntriesStatusUpdate{Updated: len(entryIDs), Status: status})
+	return structuredToolResult(MCPEntriesStatusUpdate{Updated: len(entryIDs), Status: status})
 }
 
 func (s *MinifluxServer) RefreshFeed(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -777,7 +777,7 @@ func (s *MinifluxServer) GetCategories(ctx context.Context, _ mcp.CallToolReques
 		return backendToolErrorResult(err, "failed to fetch categories")
 	}
 
-	return marshalToolResult(toMCPCategories(categories))
+	return structuredToolResult(toMCPCategoryList(categories))
 }
 
 func scopedFilter(arguments map[string]interface{}) (*client.Filter, *mcp.CallToolResult) {
@@ -823,7 +823,7 @@ func (s *MinifluxServer) GetFeedEntries(ctx context.Context, request mcp.CallToo
 		return backendToolErrorResult(err, "failed to fetch feed entries")
 	}
 
-	return marshalToolResult(toMCPEntryResultSet(entries))
+	return structuredToolResult(toMCPEntryResultSet(entries))
 }
 
 func (s *MinifluxServer) GetFeedEntry(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -865,7 +865,7 @@ func (s *MinifluxServer) GetCategoryFeeds(ctx context.Context, request mcp.CallT
 		return backendToolErrorResult(err, "failed to fetch category feeds")
 	}
 
-	return marshalToolResult(toMCPFeeds(feeds))
+	return structuredToolResult(toMCPFeedList(feeds))
 }
 
 func (s *MinifluxServer) GetCategoryEntries(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -886,7 +886,7 @@ func (s *MinifluxServer) GetCategoryEntries(ctx context.Context, request mcp.Cal
 		return backendToolErrorResult(err, "failed to fetch category entries")
 	}
 
-	return marshalToolResult(toMCPEntryResultSet(entries))
+	return structuredToolResult(toMCPEntryResultSet(entries))
 }
 
 func (s *MinifluxServer) GetCategoryEntry(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -936,7 +936,7 @@ func (s *MinifluxServer) GetVersion(ctx context.Context, _ mcp.CallToolRequest) 
 		return backendToolErrorResult(err, "failed to fetch version")
 	}
 
-	return marshalToolResult(MCPVersion{Version: version.Version})
+	return structuredToolResult(MCPVersion{Version: version.Version})
 }
 
 func (s *MinifluxServer) Healthcheck(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -953,5 +953,5 @@ func (s *MinifluxServer) FetchCounters(ctx context.Context, _ mcp.CallToolReques
 		return backendToolErrorResult(err, "failed to fetch counters")
 	}
 
-	return marshalToolResult(toMCPFeedCounters(counters))
+	return structuredToolResult(toMCPFeedCounters(counters))
 }

@@ -44,10 +44,8 @@ func TestUpdateEntriesStatusRequest(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("UpdateEntriesStatus = %#v, %v", result, err)
 	}
-	var response MCPEntriesStatusUpdate
-	if err := json.Unmarshal([]byte(resultText(t, result)), &response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	response := decodeStructuredResult[MCPEntriesStatusUpdate](t, result)
+	assertStructuredNotice(t, result)
 	if response.Updated != 2 || response.Status != client.EntryStatusRead {
 		t.Fatalf("response = %#v", response)
 	}
@@ -63,10 +61,8 @@ func TestUpdateEntriesStatusAcceptsOneID(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("UpdateEntriesStatus = %#v, %v", result, err)
 	}
-	var response MCPEntriesStatusUpdate
-	if err := json.Unmarshal([]byte(resultText(t, result)), &response); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
+	response := decodeStructuredResult[MCPEntriesStatusUpdate](t, result)
+	assertStructuredNotice(t, result)
 	if response.Updated != 1 || response.Status != client.EntryStatusUnread {
 		t.Fatalf("response = %#v", response)
 	}

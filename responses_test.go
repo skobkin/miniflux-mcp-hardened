@@ -156,6 +156,49 @@ func resultText(t *testing.T, result *mcp.CallToolResult) string {
 	return content.Text
 }
 
+// structuredResultText asserts the result carries structured content and
+// returns the JSON encoding of it for substring and key assertions. The
+// encoding matches what CallToolResult marshals onto the wire.
+func structuredResultText(t *testing.T, result *mcp.CallToolResult) string {
+	t.Helper()
+	if result == nil {
+		t.Fatal("nil tool result")
+	}
+	if result.IsError {
+		t.Fatal("tool result is an error, want structured content")
+	}
+	if result.StructuredContent == nil {
+		t.Fatal("tool result has no structured content")
+	}
+	payload, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatalf("encode structured content: %v", err)
+	}
+
+	return string(payload)
+}
+
+// decodeStructuredResult decodes the structured content of a tool result
+// into the expected DTO type.
+func decodeStructuredResult[T any](t *testing.T, result *mcp.CallToolResult) T {
+	t.Helper()
+	var decoded T
+	if err := json.Unmarshal([]byte(structuredResultText(t, result)), &decoded); err != nil {
+		t.Fatalf("decode structured content: %v", err)
+	}
+
+	return decoded
+}
+
+// assertStructuredNotice asserts the result's text content is exactly the
+// one-line pointer, proving no full-JSON text fallback regressed in.
+func assertStructuredNotice(t *testing.T, result *mcp.CallToolResult) {
+	t.Helper()
+	if text := resultText(t, result); text != structuredResultNoticeText {
+		t.Fatalf("text content = %q, want the structured-content notice", text)
+	}
+}
+
 func TestGetFeedsSanitizesSensitiveFields(t *testing.T) {
 	checkedAt := time.Date(2026, time.August, 9, 12, 0, 0, 0, time.UTC)
 	nextCheckAt := checkedAt.Add(time.Hour)
@@ -187,11 +230,16 @@ func TestGetFeedsSanitizesSensitiveFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetFeeds returned error: %v", err)
 	}
-	text := resultText(t, result)
+	text := structuredResultText(t, result)
 	if strings.Contains(text, sentinelSecret) {
 		t.Fatalf("serialized feed leaked sentinel secret: %s", text)
 	}
-	assertJSONKeys(t, text, []string{
+	feedList := decodeStructuredResult[MCPFeedList](t, result)
+	feedJSON, err := json.Marshal(feedList.Feeds[0])
+	if err != nil {
+		t.Fatalf("encode feed: %v", err)
+	}
+	assertJSONKeys(t, string(feedJSON), []string{
 		"category", "checked_at", "description", "disabled", "id", "language",
 		"next_check_at", "parsing_error_count", "site_url", "title",
 	})
@@ -207,22 +255,17 @@ func TestFeedOmitsUnknownPollingTimes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetFeeds returned error: %v", err)
 	}
-	text := resultText(t, result)
+	text := structuredResultText(t, result)
 	if strings.Contains(text, "0001-01-01") {
 		t.Fatalf("serialized feed contained a zero timestamp: %s", text)
 	}
 
-	var feeds []map[string]interface{}
-	if err := json.Unmarshal([]byte(text), &feeds); err != nil {
-		t.Fatalf("decode response: %v", err)
+	feedList := decodeStructuredResult[MCPFeedList](t, result)
+	if len(feedList.Feeds) != 1 {
+		t.Fatalf("decoded feed count = %d, want 1", len(feedList.Feeds))
 	}
-	if len(feeds) != 1 {
-		t.Fatalf("decoded object count = %d, want 1", len(feeds))
-	}
-	for _, field := range []string{"checked_at", "next_check_at"} {
-		if _, exists := feeds[0][field]; exists {
-			t.Errorf("serialized unchecked feed contained %q: %s", field, text)
-		}
+	if feedList.Feeds[0].CheckedAt != nil || feedList.Feeds[0].NextCheckAt != nil {
+		t.Errorf("serialized unchecked feed contained polling timestamps: %#v", feedList.Feeds[0])
 	}
 }
 
@@ -235,7 +278,7 @@ func TestEntryListIsCompactAndNestedFeedIsSanitized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetEntries returned error: %v", err)
 	}
-	text := resultText(t, result)
+	text := structuredResultText(t, result)
 	if strings.Contains(text, sentinelSecret) {
 		t.Fatalf("serialized entry list leaked sentinel secret: %s", text)
 	}
@@ -257,7 +300,7 @@ func TestEntryDetailIncludesContentWithoutSensitiveBackendFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetEntry returned error: %v", err)
 	}
-	text := resultText(t, result)
+	text := structuredResultText(t, result)
 	if !strings.Contains(text, "trusted-for-test article body") {
 		t.Fatalf("entry detail omitted article content: %s", text)
 	}
@@ -269,10 +312,7 @@ func TestEntryDetailIncludesContentWithoutSensitiveBackendFields(t *testing.T) {
 			t.Errorf("serialized entry detail contained forbidden field %q: %s", forbidden, text)
 		}
 	}
-	var detail MCPEntryDetail
-	if err := json.Unmarshal([]byte(text), &detail); err != nil {
-		t.Fatalf("decode entry detail: %v", err)
-	}
+	detail := decodeStructuredResult[MCPEntryDetail](t, result)
 	if detail.ContentOffset != 0 || detail.NextContentOffset != nil || detail.ContentTotalBytes != len(entry.Content) || !detail.ContentComplete {
 		t.Fatalf("content paging metadata = %#v", detail)
 	}
@@ -282,7 +322,7 @@ func TestEntryDetailIncludesContentWithoutSensitiveBackendFields(t *testing.T) {
 	if detail.ContentOrigin != contentOriginExternalFeed || detail.ContentTrust != contentTrustUntrusted {
 		t.Fatalf("trust metadata = %q/%q, want %q/%q", detail.ContentOrigin, detail.ContentTrust, contentOriginExternalFeed, contentTrustUntrusted)
 	}
-	assertJSONKeys(t, "["+text+"]", []string{
+	assertJSONKeys(t, text, []string{
 		"id", "title", "url", "author", "language", "published_at", "changed_at",
 		"status", "starred", "reading_time", "tags", "feed",
 		"comments_url", "content", "content_format", "content_origin", "content_trust",
@@ -318,15 +358,12 @@ func TestEntryDetailPagesLargeMultibyteContent(t *testing.T) {
 			t.Fatalf("encoded result size = %d, want <= %d", len(encoded), maximumContentResultBytes)
 		}
 
-		var detail MCPEntryDetail
-		if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
-			t.Fatalf("decode entry detail: %v", err)
-		}
+		detail := decodeStructuredResult[MCPEntryDetail](t, result)
 		if detail.ContentOffset != offset || detail.ContentTotalBytes != len(content) {
 			t.Fatalf("paging metadata at offset %d = %#v", offset, detail)
 		}
-		if !strings.Contains(resultText(t, result), "<p>") || strings.Contains(resultText(t, result), `\u003c`) {
-			t.Fatal("entry content was unnecessarily HTML-escaped")
+		if !strings.Contains(detail.Content, "<p>") {
+			t.Fatal("decoded entry content lost markup characters")
 		}
 		reconstructed.WriteString(detail.Content)
 		if detail.ContentComplete {
@@ -358,15 +395,12 @@ func TestEntryDetailReturnsLargestUTF8ChunkWithinBudget(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetEntry = %#v, %v", result, err)
 	}
-	var detail MCPEntryDetail
-	if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
-		t.Fatalf("decode entry detail: %v", err)
-	}
+	detail := decodeStructuredResult[MCPEntryDetail](t, result)
 	if detail.ContentComplete || detail.NextContentOffset == nil {
 		t.Fatalf("paging metadata = %#v, want incomplete chunk", detail)
 	}
 	_, runeBytes := utf8.DecodeRuneInString(entry.Content[*detail.NextContentOffset:])
-	tooLarge, err := marshalCompactToolResult(toMCPEntryDetail(entry, contentFormatMarkdown, 0, *detail.NextContentOffset+runeBytes))
+	tooLarge, err := structuredToolResult(toMCPEntryDetail(entry, contentFormatMarkdown, 0, *detail.NextContentOffset+runeBytes))
 	if err != nil {
 		t.Fatalf("encode next larger chunk: %v", err)
 	}
@@ -434,10 +468,7 @@ func TestEntryDetailResultStaysWithinBudgetAfterModernDecoration(t *testing.T) {
 	if wire := decoratedToolResultEncodedSize(t, result); wire > maximumContentResultBytes {
 		t.Fatalf("transported result size = %d (undecorated %d), want <= %d", wire, len(raw), maximumContentResultBytes)
 	}
-	var detail MCPEntryDetail
-	if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
-		t.Fatalf("decode entry detail: %v", err)
-	}
+	detail := decodeStructuredResult[MCPEntryDetail](t, result)
 	if detail.ContentComplete || detail.NextContentOffset == nil {
 		t.Fatalf("paging metadata = %#v, want incomplete chunk", detail)
 	}
@@ -455,10 +486,7 @@ func TestEntryDetailNormalizesInvalidUTF8BeforePaging(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetEntry = %#v, %v", result, err)
 	}
-	var detail MCPEntryDetail
-	if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
-		t.Fatalf("decode entry detail: %v", err)
-	}
+	detail := decodeStructuredResult[MCPEntryDetail](t, result)
 	want := "before\ufffdafter"
 	if detail.Content != want || detail.ContentTotalBytes != len(want) || !detail.ContentComplete {
 		t.Fatalf("detail = %#v, want normalized complete content", detail)
@@ -498,10 +526,7 @@ func TestDetailHandlersHonorContentOffset(t *testing.T) {
 			if err != nil || result.IsError {
 				t.Fatalf("detail call = %#v, %v", result, err)
 			}
-			var detail MCPEntryDetail
-			if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
-				t.Fatalf("decode entry detail: %v", err)
-			}
+			detail := decodeStructuredResult[MCPEntryDetail](t, result)
 			if detail.ContentOffset != 3 || detail.Content != "界def" || !detail.ContentComplete {
 				t.Fatalf("detail = %#v", detail)
 			}
@@ -551,10 +576,7 @@ func TestGetEntryAcceptsEndContentOffset(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetEntry = %#v, %v", result, err)
 	}
-	var detail MCPEntryDetail
-	if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
-		t.Fatalf("decode entry detail: %v", err)
-	}
+	detail := decodeStructuredResult[MCPEntryDetail](t, result)
 	if detail.Content != "" || detail.ContentOffset != len(entry.Content) || detail.NextContentOffset != nil || !detail.ContentComplete {
 		t.Fatalf("detail = %#v", detail)
 	}
@@ -614,19 +636,14 @@ func TestFetchCountersUsesEmptyObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchCounters returned error: %v", err)
 	}
-	text := resultText(t, result)
+	text := structuredResultText(t, result)
 	if strings.Contains(text, "null") {
 		t.Fatalf("serialized counters contained null: %s", text)
 	}
 
-	var counters map[string]map[string]int
-	if err := json.Unmarshal([]byte(text), &counters); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	for _, field := range []string{"reads", "unreads"} {
-		if counters[field] == nil {
-			t.Errorf("serialized counters omitted empty object %q: %s", field, text)
-		}
+	counters := decodeStructuredResult[MCPFeedCounters](t, result)
+	if counters.ReadCounters == nil || counters.UnreadCounters == nil {
+		t.Fatalf("serialized counters = %s, want empty non-nil reads/unreads objects", text)
 	}
 }
 
@@ -721,15 +738,15 @@ func secretEntry() *client.Entry {
 
 func assertJSONKeys(t *testing.T, value string, expected []string) {
 	t.Helper()
-	var objects []map[string]interface{}
-	if err := json.Unmarshal([]byte(value), &objects); err != nil {
+	var object map[string]interface{}
+	if err := json.Unmarshal([]byte(value), &object); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if len(objects) != 1 {
-		t.Fatalf("decoded object count = %d, want 1", len(objects))
+	if object == nil {
+		t.Fatalf("decoded response = %s, want a JSON object", value)
 	}
-	actual := make([]string, 0, len(objects[0]))
-	for key := range objects[0] {
+	actual := make([]string, 0, len(object))
+	for key := range object {
 		actual = append(actual, key)
 	}
 	sort.Strings(actual)

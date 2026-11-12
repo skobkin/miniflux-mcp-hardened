@@ -157,7 +157,18 @@ func TestDynamicMinifluxClientsAreIsolatedAcrossConcurrentCalls(t *testing.T) {
 
 				return
 			}
-			text := toolResultText(readResult)
+			if readResult.StructuredContent == nil {
+				errors <- fmt.Errorf("read %d returned no structured content", index)
+
+				return
+			}
+			payload, err := json.Marshal(readResult.StructuredContent)
+			if err != nil {
+				errors <- fmt.Errorf("read %d encode structured content: %w", index, err)
+
+				return
+			}
+			text := string(payload)
 			if !strings.Contains(text, identity) || strings.Contains(text, tokenA) || strings.Contains(text, tokenB) {
 				errors <- fmt.Errorf("read %d returned wrong or secret-bearing result: %s", index, text)
 

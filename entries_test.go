@@ -89,17 +89,11 @@ func TestGetEntriesFilters(t *testing.T) {
 		t.Fatalf("GetEntries returned tool error: %#v", result.Content)
 	}
 
-	textContent, ok := mcp.AsTextContent(result.Content[0])
-	if !ok {
-		t.Fatalf("result content type = %T, want text", result.Content[0])
-	}
-	var entries client.EntryResultSet
-	if err := json.Unmarshal([]byte(textContent.Text), &entries); err != nil {
-		t.Fatalf("decode result: %v", err)
-	}
+	entries := decodeStructuredResult[MCPEntryResultSet](t, result)
 	if entries.Total != 12 {
 		t.Errorf("total = %d, want 12", entries.Total)
 	}
+	assertStructuredNotice(t, result)
 }
 
 func TestParseEntryFilterValidation(t *testing.T) {

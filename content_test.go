@@ -57,10 +57,7 @@ func TestEntryDetailDefaultsToMarkdown(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetEntry = %#v, %v", result, err)
 	}
-	var detail MCPEntryDetail
-	if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
-		t.Fatalf("decode entry detail: %v", err)
-	}
+	detail := decodeStructuredResult[MCPEntryDetail](t, result)
 	if detail.ContentFormat != "markdown" {
 		t.Fatalf("content_format = %q, want markdown", detail.ContentFormat)
 	}
@@ -90,10 +87,7 @@ func TestEntryDetailHonorsHTMLOptOut(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetEntry = %#v, %v", result, err)
 	}
-	var detail MCPEntryDetail
-	if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
-		t.Fatalf("decode entry detail: %v", err)
-	}
+	detail := decodeStructuredResult[MCPEntryDetail](t, result)
 	if detail.ContentFormat != "html" {
 		t.Fatalf("content_format = %q, want html", detail.ContentFormat)
 	}
@@ -130,10 +124,7 @@ func TestEntryDetailPagesConvertedMarkdown(t *testing.T) {
 			t.Fatalf("encoded result size = %d, want <= %d", len(encoded), maximumContentResultBytes)
 		}
 
-		var detail MCPEntryDetail
-		if err := json.Unmarshal([]byte(resultText(t, result)), &detail); err != nil {
-			t.Fatalf("decode entry detail: %v", err)
-		}
+		detail := decodeStructuredResult[MCPEntryDetail](t, result)
 		if detail.ContentFormat != "markdown" {
 			t.Fatalf("content_format = %q, want markdown", detail.ContentFormat)
 		}
@@ -165,10 +156,7 @@ func TestGetUnreadDigestExcerptsAreMarkdown(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
 	}
-	var digest MCPUnreadDigest
-	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
-		t.Fatalf("decode digest: %v", err)
-	}
+	digest := decodeStructuredResult[MCPUnreadDigest](t, result)
 	if len(digest.Entries) != 1 {
 		t.Fatalf("digest entries = %d, want 1", len(digest.Entries))
 	}
@@ -351,10 +339,7 @@ func TestGetUnreadDigestDisclosesHTMLFormat(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("GetUnreadDigest = %#v, %v", result, err)
 	}
-	var digest MCPUnreadDigest
-	if err := json.Unmarshal([]byte(resultText(t, result)), &digest); err != nil {
-		t.Fatalf("decode digest: %v", err)
-	}
+	digest := decodeStructuredResult[MCPUnreadDigest](t, result)
 	if digest.ContentFormat != "html" {
 		t.Fatalf("digest content_format = %q, want html", digest.ContentFormat)
 	}
