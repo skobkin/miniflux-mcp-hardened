@@ -37,7 +37,9 @@ var (
 		IdempotentHint:  mcp.ToBoolPtr(true),
 		OpenWorldHint:   mcp.ToBoolPtr(true),
 	}
-	toggleToolAnnotations = mcp.ToolAnnotation{
+	// refresh_feed performs a new origin fetch on every call and
+	// toggle_starred flips state, so neither is idempotent.
+	nonIdempotentWriteToolAnnotations = mcp.ToolAnnotation{
 		ReadOnlyHint:    mcp.ToBoolPtr(false),
 		DestructiveHint: mcp.ToBoolPtr(false),
 		IdempotentHint:  mcp.ToBoolPtr(false),
@@ -209,8 +211,8 @@ func (s *MinifluxServer) writeToolDefinitions() []ToolDefinition {
 			"entry_ids": entryIDsProperty(),
 			"status":    enumStringProperty("New entry status", entryUpdateStatuses),
 		}, "entry_ids", "status"), statusWriteToolAnnotations), s.UpdateEntriesStatus},
-		{annotateTool(objectTool("toggle_starred", "Toggle the starred state of one entry", map[string]interface{}{"entry_id": idProperty("The entry ID")}, "entry_id"), toggleToolAnnotations), s.ToggleStarred},
-		{annotateTool(objectTool("refresh_feed", "Request a refresh of one feed", map[string]interface{}{"feed_id": idProperty("The feed ID")}, "feed_id"), statusWriteToolAnnotations), s.RefreshFeed},
+		{annotateTool(objectTool("toggle_starred", "Toggle the starred state of one entry", map[string]interface{}{"entry_id": idProperty("The entry ID")}, "entry_id"), nonIdempotentWriteToolAnnotations), s.ToggleStarred},
+		{annotateTool(objectTool("refresh_feed", "Request a refresh of one feed", map[string]interface{}{"feed_id": idProperty("The feed ID")}, "feed_id"), nonIdempotentWriteToolAnnotations), s.RefreshFeed},
 	}
 }
 

@@ -328,7 +328,7 @@ func TestToolAnnotationsMatchPolicy(t *testing.T) {
 	}
 	read := expectedAnnotations{readOnly: true, destructive: false, idempotent: true, openWorld: true}
 	statusWrite := expectedAnnotations{readOnly: false, destructive: false, idempotent: true, openWorld: true}
-	toggle := expectedAnnotations{readOnly: false, destructive: false, idempotent: false, openWorld: true}
+	nonIdempotentWrite := expectedAnnotations{readOnly: false, destructive: false, idempotent: false, openWorld: true}
 	expectedByName := map[string]expectedAnnotations{
 		"get_feeds":             read,
 		"get_feed":              read,
@@ -346,8 +346,8 @@ func TestToolAnnotationsMatchPolicy(t *testing.T) {
 		"fetch_counters":        read,
 		"update_entry_status":   statusWrite,
 		"update_entries_status": statusWrite,
-		"refresh_feed":          statusWrite,
-		"toggle_starred":        toggle,
+		"refresh_feed":          nonIdempotentWrite,
+		"toggle_starred":        nonIdempotentWrite,
 	}
 	seen := make(map[string]struct{}, len(expectedByName))
 	for _, definition := range (&MinifluxServer{}).toolDefinitions(enabled) {
