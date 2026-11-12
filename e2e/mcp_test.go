@@ -289,7 +289,10 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 
 	var listed struct {
 		Tools []struct {
-			Name string `json:"name"`
+			Name        string `json:"name"`
+			Annotations *struct {
+				ReadOnlyHint *bool `json:"readOnlyHint"`
+			} `json:"annotations"`
 		} `json:"tools"`
 	}
 	if err := client.request("tools/list", map[string]any{}, &listed); err != nil {
@@ -298,6 +301,9 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 	toolNames := make([]string, 0, len(listed.Tools))
 	for _, tool := range listed.Tools {
 		toolNames = append(toolNames, tool.Name)
+		if tool.Name == "get_version" && (tool.Annotations == nil || tool.Annotations.ReadOnlyHint == nil || !*tool.Annotations.ReadOnlyHint) {
+			t.Errorf("get_version is missing a true readOnlyHint annotation")
+		}
 	}
 	for _, name := range []string{"get_version", "get_categories", "get_entries", "get_entry", "get_unread_digest"} {
 		if !slices.Contains(toolNames, name) {
@@ -348,15 +354,32 @@ func TestMCPServerWithMiniflux(t *testing.T) {
 		t.Fatalf("get unread digest: %v", err)
 	}
 	var digest struct {
-		Entries       []json.RawMessage `json:"entries"`
-		AckEntryIDs   []int64           `json:"ack_entry_ids"`
-		ScanTruncated bool              `json:"scan_truncated"`
+		Entries []struct {
+			ID             int64  `json:"id"`
+			ContentExcerpt string `json:"content_excerpt"`
+			ContentOrigin  string `json:"content_origin"`
+			ContentTrust   string `json:"content_trust"`
+		} `json:"entries"`
+		AckEntryIDs   []int64 `json:"ack_entry_ids"`
+		ContentFormat string  `json:"content_format"`
+		ScanTruncated bool    `json:"scan_truncated"`
 	}
 	if err := json.Unmarshal([]byte(digestText), &digest); err != nil {
 		t.Fatalf("decode unread digest: %v", err)
 	}
 	if digest.Entries == nil || digest.AckEntryIDs == nil {
 		t.Fatalf("get_unread_digest returned null collections: %s", digestText)
+	}
+	if digest.ContentFormat != "markdown" {
+		t.Fatalf("digest content_format = %q, want the markdown default", digest.ContentFormat)
+	}
+	for _, entry := range digest.Entries {
+		if entry.ContentOrigin != "external_feed" || entry.ContentTrust != "untrusted" {
+			t.Fatalf("digest entry %d trust metadata = %q/%q", entry.ID, entry.ContentOrigin, entry.ContentTrust)
+		}
+		if strings.Contains(entry.ContentExcerpt, "<p>") || strings.Contains(entry.ContentExcerpt, "<script") {
+			t.Fatalf("digest entry %d excerpt carries raw HTML markup: %q", entry.ID, entry.ContentExcerpt)
+		}
 	}
 
 	healthCommand := exec.Command(os.Getenv("MCP_SERVER_PATH"), "healthcheck")
